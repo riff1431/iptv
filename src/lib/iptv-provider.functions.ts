@@ -179,3 +179,91 @@ export const getPublicIptvProvider = createServerFn({ method: "GET" }).handler(
     };
   },
 );
+
+export const testIptvProviderAdmin = createServerFn({ method: "POST" })
+  .middleware([requireAdminServer])
+  .inputValidator((d: unknown) => updateSchema.parse(d))
+  .handler(async ({ data }) => {
+    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+    const { decryptSecret } = await import("@/lib/iptv-crypto.server");
+    const { testConnection } = await import("@/lib/iptv-client.server");
+
+    let pass = data.xtream_password;
+    if (!pass || pass.length === 0) {
+      const { data: row } = await supabaseAdmin
+        .from("app_settings")
+        .select("iptv_xtream_password_encrypted")
+        .eq("id", true)
+        .maybeSingle();
+      pass = decryptSecret(row?.iptv_xtream_password_encrypted);
+    }
+
+    const creds = {
+      server_url: data.provider_type === "m3u" ? data.m3u_url : data.xtream_server_url,
+      username: data.xtream_username || null,
+      password: pass || null,
+      connection_type: data.provider_type,
+    };
+
+    return testConnection(creds);
+  });
+
+export interface AdminChannelPreviewResponse {
+  provider_type: IptvProviderType;
+  totalChannels: number;
+  categories: string[];
+  channels: Array<{
+    id: string;
+    name: string;
+    logo: string | null;
+    group: string | null;
+  }>;
+}
+
+export const previewIptvChannelsAdmin = createServerFn({ method: "GET" })
+  .middleware([requireAdminServer])
+  .handler(async (): Promise<AdminChannelPreviewResponse> => {
+    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+    const { decryptSecret } = await import("@/lib/iptv-crypto.server");
+    const { fetchChannels } = await import("@/lib/iptv-client.server");
+
+    const { data: row, error } = await supabaseAdmin
+      .from("app_settings")
+      .select(
+        "iptv_provider_type, iptv_m3u_url, iptv_xtream_server_url, iptv_xtream_username, iptv_xtream_password_encrypted",
+      )
+      .eq("id", true)
+      .maybeSingle();
+
+    if (error) throw new Error(error.message);
+    if (!row) throw new Error("No provider settings configured in database");
+
+    const type = (row.iptv_provider_type as IptvProviderType) ?? "m3u";
+    const serverUrl = type === "m3u" ? row.iptv_m3u_url : row.iptv_xtream_server_url;
+    if (!serverUrl) throw new Error("No provider URL configured in database");
+
+    const password = decryptSecret(row.iptv_xtream_password_encrypted);
+    if (type === "xtream" && !password) {
+      throw new Error("Saved password needs to be re-saved. Please re-enter your Xtream password and click Save settings.");
+    }
+
+    const creds = {
+      server_url: serverUrl,
+      username: row.iptv_xtream_username || null,
+      password: password || null,
+      connection_type: type,
+    };
+
+    const channels = await fetchChannels(creds);
+    const categorySet = new Set<string>();
+    channels.forEach((c) => {
+      if (c.group) categorySet.add(c.group);
+    });
+
+    return {
+      provider_type: type,
+      totalChannels: channels.length,
+      categories: Array.from(categorySet).sort(),
+      channels: channels.slice(0, 500),
+    };
+  });

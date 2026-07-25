@@ -1,12 +1,28 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useEffect, useState } from "react";
+import { useEffect, useState, useMemo } from "react";
 import { useServerFn } from "@tanstack/react-start";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { Loader2, Radio, Save, KeyRound, Trash2, ShieldCheck, ExternalLink } from "lucide-react";
+import {
+  Loader2,
+  Radio,
+  Save,
+  KeyRound,
+  Trash2,
+  ShieldCheck,
+  ExternalLink,
+  Zap,
+  Tv,
+  Search,
+  CheckCircle2,
+  XCircle,
+  Play,
+  ListFilter,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Badge } from "@/components/ui/badge";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -18,9 +34,19 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+} from "@/components/ui/dialog";
+import {
   getIptvProviderAdmin,
   updateIptvProviderAdmin,
+  testIptvProviderAdmin,
+  previewIptvChannelsAdmin,
   type IptvProviderType,
+  type AdminChannelPreviewResponse,
 } from "@/lib/iptv-provider.functions";
 
 export const Route = createFileRoute("/admin/iptv-provider")({
@@ -40,6 +66,8 @@ function AdminIptvProviderPage() {
   const qc = useQueryClient();
   const getFn = useServerFn(getIptvProviderAdmin);
   const updateFn = useServerFn(updateIptvProviderAdmin);
+  const testFn = useServerFn(testIptvProviderAdmin);
+  const previewFn = useServerFn(previewIptvChannelsAdmin);
 
   const query = useQuery({
     queryKey: ["admin", "iptv-provider"],
@@ -55,6 +83,23 @@ function AdminIptvProviderPage() {
     epg_url: "",
   });
   const [confirmClearPw, setConfirmClearPw] = useState(false);
+  const [testResult, setTestResult] = useState<{
+    ok: boolean;
+    message: string;
+    channelCount?: number;
+  } | null>(null);
+
+  // Preview Modal state
+  const [previewOpen, setPreviewOpen] = useState(false);
+  const [previewSearch, setPreviewSearch] = useState("");
+  const [selectedCategory, setSelectedCategory] = useState<string>("ALL");
+
+  const previewQuery = useQuery({
+    queryKey: ["admin", "iptv-provider-preview"],
+    queryFn: () => previewFn(),
+    enabled: previewOpen,
+    staleTime: 60_000,
+  });
 
   useEffect(() => {
     if (query.data) {
@@ -89,20 +134,74 @@ function AdminIptvProviderPage() {
       toast.success("IPTV provider settings saved");
       setForm((f) => ({ ...f, xtream_password: "" }));
       qc.invalidateQueries({ queryKey: ["admin", "iptv-provider"] });
+      qc.invalidateQueries({ queryKey: ["admin", "iptv-provider-preview"] });
       qc.invalidateQueries({ queryKey: ["iptv-provider", "public"] });
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+
+  const testConn = useMutation({
+    mutationFn: () =>
+      testFn({
+        data: {
+          provider_type: form.provider_type,
+          m3u_url: form.m3u_url.trim(),
+          xtream_server_url: form.xtream_server_url.trim(),
+          xtream_username: form.xtream_username.trim(),
+          xtream_password: form.xtream_password.length > 0 ? form.xtream_password : undefined,
+          epg_url: form.epg_url.trim(),
+        },
+      }),
+    onSuccess: (res) => {
+      setTestResult(res);
+      if (res.ok) {
+        toast.success(res.message);
+      } else {
+        toast.error(res.message);
+      }
     },
     onError: (e: Error) => toast.error(e.message),
   });
 
   const hasPw = query.data?.has_xtream_password ?? false;
 
+  // Filtered channels for preview
+  const filteredChannels = useMemo(() => {
+    if (!previewQuery.data?.channels) return [];
+    let list = previewQuery.data.channels;
+    if (selectedCategory !== "ALL") {
+      list = list.filter((c) => c.group === selectedCategory);
+    }
+    if (previewSearch.trim()) {
+      const q = previewSearch.toLowerCase();
+      list = list.filter(
+        (c) => c.name.toLowerCase().includes(q) || (c.group && c.group.toLowerCase().includes(q)),
+      );
+    }
+    return list;
+  }, [previewQuery.data, selectedCategory, previewSearch]);
+
   return (
     <div className="space-y-4">
-      <div>
-        <h2 className="font-display text-xl font-bold">IPTV Provider</h2>
-        <p className="text-xs uppercase tracking-wider text-muted-foreground">
-          One shared source used by every match. Update here and all matches switch automatically.
-        </p>
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h2 className="font-display text-xl font-bold">IPTV Provider</h2>
+          <p className="text-xs uppercase tracking-wider text-muted-foreground">
+            One shared source used by every match. Update here and all matches switch automatically.
+          </p>
+        </div>
+
+        <div className="flex items-center gap-2">
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={() => setPreviewOpen(true)}
+            className="gap-2 border-arena-violet/50 bg-arena-violet/10 text-arena-violet hover:bg-arena-violet/20"
+          >
+            <Tv className="h-4 w-4" /> Preview Live Channels
+          </Button>
+        </div>
       </div>
 
       {query.isLoading ? (
@@ -232,6 +331,29 @@ function AdminIptvProviderPage() {
             />
           </div>
 
+          {/* Test Status Badge */}
+          {testResult && (
+            <div
+              className={`flex items-center gap-2 rounded-lg border p-3 text-xs font-medium ${
+                testResult.ok
+                  ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-300"
+                  : "border-rose-500/30 bg-rose-500/10 text-rose-300"
+              }`}
+            >
+              {testResult.ok ? (
+                <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-400" />
+              ) : (
+                <XCircle className="h-4 w-4 shrink-0 text-rose-400" />
+              )}
+              <span className="flex-1">{testResult.message}</span>
+              {testResult.channelCount != null && (
+                <Badge variant="outline" className="border-emerald-500/40 text-emerald-300">
+                  {testResult.channelCount.toLocaleString()} Live Channels
+                </Badge>
+              )}
+            </div>
+          )}
+
           <div className="flex flex-wrap items-center justify-between gap-3 border-t border-arena-border pt-4">
             <div className="text-xs text-muted-foreground">
               {query.data?.updated_at ? (
@@ -241,6 +363,21 @@ function AdminIptvProviderPage() {
               )}
             </div>
             <div className="flex items-center gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => testConn.mutate()}
+                disabled={testConn.isPending}
+                className="gap-2"
+              >
+                {testConn.isPending ? (
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                ) : (
+                  <Zap className="h-3.5 w-3.5 text-amber-400" />
+                )}
+                Test Connection
+              </Button>
               <Button asChild variant="ghost" size="sm">
                 <a href="/iptv" target="_blank" rel="noreferrer">
                   <ExternalLink className="mr-2 h-3.5 w-3.5" /> Preview /iptv
@@ -263,6 +400,7 @@ function AdminIptvProviderPage() {
         </div>
       )}
 
+      {/* Clear Password Confirmation */}
       <AlertDialog open={confirmClearPw} onOpenChange={setConfirmClearPw}>
         <AlertDialogContent>
           <AlertDialogHeader>
@@ -285,6 +423,125 @@ function AdminIptvProviderPage() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {/* Interactive Channel List Preview Modal */}
+      <Dialog open={previewOpen} onOpenChange={setPreviewOpen}>
+        <DialogContent className="max-w-4xl max-h-[85vh] flex flex-col bg-arena-panel border-arena-border">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-lg font-bold">
+              <Tv className="h-5 w-5 text-arena-violet" />
+              Live Channels Preview
+              {previewQuery.data && (
+                <Badge variant="secondary" className="ml-auto font-mono text-xs">
+                  {previewQuery.data.totalChannels.toLocaleString()} Total Channels
+                </Badge>
+              )}
+            </DialogTitle>
+            <DialogDescription className="text-xs text-muted-foreground">
+              Live channels fetched from your active IPTV provider ({query.data?.provider_type.toUpperCase()}).
+            </DialogDescription>
+          </DialogHeader>
+
+          {previewQuery.isLoading ? (
+            <div className="flex h-64 items-center justify-center gap-2 text-sm text-muted-foreground">
+              <Loader2 className="h-5 w-5 animate-spin text-arena-violet" />
+              Fetching live channels from provider server…
+            </div>
+          ) : previewQuery.isError ? (
+            <div className="flex h-64 flex-col items-center justify-center gap-2 p-6 text-center text-rose-400">
+              <XCircle className="h-8 w-8" />
+              <p className="text-sm font-semibold">Failed to fetch live channels</p>
+              <p className="text-xs text-muted-foreground">
+                {(previewQuery.error as Error)?.message || "Check your provider settings and test connection."}
+              </p>
+            </div>
+          ) : (
+            <div className="flex flex-1 flex-col gap-3 overflow-hidden pt-2">
+              {/* Search & Category Filter */}
+              <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+                <div className="relative flex-1">
+                  <Search className="absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" />
+                  <Input
+                    placeholder="Search channel name or group…"
+                    value={previewSearch}
+                    onChange={(e) => setPreviewSearch(e.target.value)}
+                    className="pl-9"
+                  />
+                </div>
+                {previewQuery.data?.categories && previewQuery.data.categories.length > 0 && (
+                  <div className="flex items-center gap-2 sm:w-64">
+                    <ListFilter className="h-4 w-4 text-muted-foreground shrink-0" />
+                    <select
+                      value={selectedCategory}
+                      onChange={(e) => setSelectedCategory(e.target.value)}
+                      className="w-full rounded-md border border-arena-border bg-arena-panel-2 px-3 py-2 text-xs text-white outline-none focus:border-arena-violet"
+                    >
+                      <option value="ALL">All Categories ({previewQuery.data.categories.length})</option>
+                      {previewQuery.data.categories.map((cat) => (
+                        <option key={cat} value={cat}>
+                          {cat}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                )}
+              </div>
+
+              {/* Channel Count Bar */}
+              <div className="flex items-center justify-between text-xs text-muted-foreground px-1">
+                <span>
+                  Showing {filteredChannels.length} of {previewQuery.data?.totalChannels.toLocaleString()} channels
+                </span>
+                {selectedCategory !== "ALL" && (
+                  <Badge variant="outline" className="text-[10px]">
+                    Category: {selectedCategory}
+                  </Badge>
+                )}
+              </div>
+
+              {/* Channel Grid */}
+              <div className="grid flex-1 gap-2 overflow-y-auto pr-1 sm:grid-cols-2 lg:grid-cols-3 max-h-[55vh]">
+                {filteredChannels.length === 0 ? (
+                  <div className="col-span-full py-12 text-center text-xs text-muted-foreground">
+                    No channels match your search filter.
+                  </div>
+                ) : (
+                  filteredChannels.map((ch) => (
+                    <div
+                      key={ch.id}
+                      className="flex items-center gap-3 rounded-lg border border-arena-border bg-arena-panel-2/40 p-2.5 transition hover:border-arena-violet/50 hover:bg-arena-panel-2/80"
+                    >
+                      {ch.logo ? (
+                        <img
+                          src={ch.logo}
+                          alt={ch.name}
+                          className="h-9 w-9 rounded object-contain bg-black/40 p-0.5"
+                          onError={(e) => {
+                            (e.target as HTMLElement).style.display = "none";
+                          }}
+                        />
+                      ) : (
+                        <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded bg-arena-violet/20 text-arena-violet">
+                          <Tv className="h-4 w-4" />
+                        </div>
+                      )}
+                      <div className="min-w-0 flex-1">
+                        <p className="truncate text-xs font-semibold text-white" title={ch.name}>
+                          {ch.name}
+                        </p>
+                        {ch.group && (
+                          <p className="truncate text-[10px] text-muted-foreground">{ch.group}</p>
+                        )}
+                        <span className="font-mono text-[9px] text-muted-foreground/60">ID: {ch.id}</span>
+                      </div>
+                    </div>
+                  ))
+                )}
+              </div>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

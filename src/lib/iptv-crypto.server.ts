@@ -27,18 +27,23 @@ export function decryptSecret(value: string | null | undefined): string {
   if (!value) return "";
   if (!value.startsWith(PREFIX)) return value; // legacy plaintext
   const [, , ivB64, tagB64, ctB64] = value.split(":");
-  if (!ivB64 || !tagB64 || !ctB64) throw new Error("Malformed encrypted value");
-  const decipher = createDecipheriv(
-    "aes-256-gcm",
-    getKey(),
-    Buffer.from(ivB64, "base64"),
-  );
-  decipher.setAuthTag(Buffer.from(tagB64, "base64"));
-  const dec = Buffer.concat([
-    decipher.update(Buffer.from(ctB64, "base64")),
-    decipher.final(),
-  ]);
-  return dec.toString("utf8");
+  if (!ivB64 || !tagB64 || !ctB64) return "";
+  try {
+    const decipher = createDecipheriv(
+      "aes-256-gcm",
+      getKey(),
+      Buffer.from(ivB64, "base64"),
+    );
+    decipher.setAuthTag(Buffer.from(tagB64, "base64"));
+    const dec = Buffer.concat([
+      decipher.update(Buffer.from(ctB64, "base64")),
+      decipher.final(),
+    ]);
+    return dec.toString("utf8");
+  } catch (err) {
+    console.error("[crypto] Decryption failed (key changed or payload invalid):", err);
+    return "";
+  }
 }
 
 export function isEncrypted(value: string | null | undefined): boolean {
