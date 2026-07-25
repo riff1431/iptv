@@ -1,8 +1,9 @@
 import { useState } from "react";
 import { withAuth } from "@/components/RequireAuth";
 import { Link, Outlet, createFileRoute, useParams, useRouter } from "@tanstack/react-router";
-import { ArrowLeft, Home, Menu, Settings2, Trophy } from "lucide-react";
+import { ArrowLeft, Home, Menu, Settings2, Trophy, Tv, Radio, ShieldCheck } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
 import { Sheet, SheetContent, SheetTrigger, SheetTitle, SheetHeader } from "@/components/ui/sheet";
 import { useIptvSettings } from "@/hooks/useIptvSettings";
 import { useIptvFavorites } from "@/hooks/useIptvFavorites";
@@ -17,8 +18,8 @@ export const Route = createFileRoute("/iptv")({
   head: ({ loaderData }) => {
     const origin = loaderData?.origin ?? "";
     const url = origin ? `${origin}/iptv` : "/iptv";
-    const title = "IPTV — Live TV | PGX";
-    const description = "Watch live IPTV channels from any M3U playlist URL in PGX.";
+    const title = "IPTV — Live TV Cinema | PGX Sports";
+    const description = "Stream 18,000+ live IPTV channels with HD clarity and zero buffering in PGX Sports Lounge.";
     return {
       meta: [
         { title },
@@ -47,6 +48,7 @@ function IptvLayout() {
   const activeId = params.channelId;
   const [sheetOpen, setSheetOpen] = useState(false);
   const router = useRouter();
+
   const handleBack = () => {
     if (typeof window !== "undefined" && window.history.length > 1) {
       router.history.back();
@@ -57,30 +59,17 @@ function IptvLayout() {
 
   const sidebar = (
     <div className="flex h-full flex-col gap-3">
-      <div className="flex items-center justify-between">
-        <div>
-          <h2 className="text-sm font-semibold text-foreground">Channels</h2>
-          <p className="text-xs text-muted-foreground">
-            {isLoading ? "Loading…" : `${channels.length} loaded`}
-          </p>
-        </div>
-        <Button asChild variant="ghost" size="sm">
-          <Link to="/iptv/settings">
-            <Settings2 className="h-4 w-4" />
-          </Link>
-        </Button>
-      </div>
       {error ? (
-        <div className="rounded-md border border-destructive/40 bg-destructive/10 p-3 text-xs text-destructive">
-          {(error as Error).message}
-          <div className="mt-2">
-            <Button asChild size="sm" variant="outline">
-              <Link to="/iptv/settings">Open settings</Link>
+        <div className="rounded-lg border border-destructive/40 bg-destructive/10 p-4 text-xs text-destructive">
+          <p className="font-semibold">{error instanceof Error ? error.message : String(error)}</p>
+          <div className="mt-3">
+            <Button asChild size="sm" variant="outline" className="h-8 border-destructive/50 text-xs">
+              <Link to="/iptv/settings">Re-check IPTV Settings</Link>
             </Button>
           </div>
         </div>
       ) : (
-        <div className="flex min-h-0 flex-1 flex-col gap-2">
+        <div className="flex min-h-0 flex-1 flex-col gap-3">
           {channels.length > 0 && recentIds.length > 0 && (
             <RecentlyWatched
               channels={channels}
@@ -103,54 +92,87 @@ function IptvLayout() {
   );
 
   return (
-    <div className="mx-auto flex min-h-screen w-full max-w-7xl flex-col gap-4 p-4">
-      <header className="flex items-center justify-between">
-        <div className="flex items-center gap-2">
-          <Button variant="outline" size="icon" aria-label="Go back" onClick={handleBack}>
-            <ArrowLeft className="h-4 w-4" />
-          </Button>
-          <Sheet open={sheetOpen} onOpenChange={setSheetOpen}>
-            <SheetTrigger asChild>
-              <Button variant="outline" size="icon" className="md:hidden" aria-label="Channels">
-                <Menu className="h-4 w-4" />
-              </Button>
-            </SheetTrigger>
-            <SheetContent side="left" className="w-[85vw] max-w-sm p-4">
-              <SheetHeader>
-                <SheetTitle>Channels</SheetTitle>
-              </SheetHeader>
-              <div className="mt-3 h-[calc(100vh-6rem)]" onClick={() => setSheetOpen(false)}>
-                {sidebar}
+    <div className="min-h-screen w-full bg-[#0B0F17] text-foreground selection:bg-primary selection:text-primary-foreground">
+      {/* Top Header */}
+      <header className="sticky top-0 z-30 border-b border-white/10 bg-[#0B0F17]/80 backdrop-blur-md px-4 py-3">
+        <div className="mx-auto flex max-w-7xl items-center justify-between gap-4">
+          <div className="flex items-center gap-3">
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-9 w-9 text-muted-foreground hover:bg-white/10 hover:text-foreground"
+              aria-label="Go back"
+              onClick={handleBack}
+            >
+              <ArrowLeft className="h-4 w-4" />
+            </Button>
+            <Sheet open={sheetOpen} onOpenChange={setSheetOpen}>
+              <SheetTrigger asChild>
+                <Button variant="outline" size="icon" className="h-9 w-9 border-white/10 md:hidden" aria-label="Channels">
+                  <Menu className="h-4 w-4" />
+                </Button>
+              </SheetTrigger>
+              <SheetContent side="left" className="w-[88vw] max-w-md border-white/10 bg-[#0B0F17] p-4 text-foreground">
+                <SheetHeader className="pb-2 border-b border-white/10">
+                  <SheetTitle className="flex items-center gap-2 text-base text-foreground">
+                    <Tv className="h-5 w-5 text-primary" />
+                    <span>Channels Explorer</span>
+                  </SheetTitle>
+                </SheetHeader>
+                <div className="mt-4 h-[calc(100vh-6.5rem)]" onClick={() => setSheetOpen(false)}>
+                  {sidebar}
+                </div>
+              </SheetContent>
+            </Sheet>
+            <div className="flex items-center gap-2">
+              <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-gradient-to-tr from-primary to-purple-600 text-white shadow-md shadow-primary/20">
+                <Tv className="h-5 w-5" />
               </div>
-            </SheetContent>
-          </Sheet>
-          <h1 className="text-xl font-semibold">IPTV</h1>
-        </div>
-        <div className="flex items-center gap-2">
-          <Button asChild variant="outline" size="sm">
-            <Link to="/">
-              <Home className="mr-2 h-4 w-4" /> Home
-            </Link>
-          </Button>
-          <Button asChild variant="outline" size="sm">
-            <Link to="/arena">
-              <Trophy className="mr-2 h-4 w-4" /> Arena
-            </Link>
-          </Button>
-          <Button asChild variant="outline" size="sm">
-            <Link to="/iptv/settings">
-              <Settings2 className="mr-2 h-4 w-4" /> Settings
-            </Link>
-          </Button>
+              <div>
+                <div className="flex items-center gap-2">
+                  <h1 className="text-base font-bold tracking-tight text-foreground">IPTV Cinema</h1>
+                  <Badge variant="outline" className="hidden sm:inline-flex border-emerald-500/40 bg-emerald-500/10 text-emerald-400 text-[10px] font-bold">
+                    <Radio className="mr-1 h-3 w-3 animate-pulse text-emerald-400" />
+                    LIVE
+                  </Badge>
+                </div>
+                <p className="text-[11px] text-muted-foreground">
+                  {isLoading ? "Connecting to provider..." : `${channels.length.toLocaleString()} Live Channels`}
+                </p>
+              </div>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2">
+            <Button asChild variant="ghost" size="sm" className="hidden sm:inline-flex h-8 border-white/5 text-xs text-muted-foreground hover:text-foreground">
+              <Link to="/">
+                <Home className="mr-1.5 h-3.5 w-3.5" /> Home
+              </Link>
+            </Button>
+            <Button asChild variant="ghost" size="sm" className="hidden sm:inline-flex h-8 border-white/5 text-xs text-muted-foreground hover:text-foreground">
+              <Link to="/arena">
+                <Trophy className="mr-1.5 h-3.5 w-3.5 text-amber-400" /> Arena
+              </Link>
+            </Button>
+            <Button asChild variant="outline" size="sm" className="h-8 border-white/10 bg-white/5 text-xs font-semibold hover:bg-white/10">
+              <Link to="/iptv/settings">
+                <Settings2 className="mr-1.5 h-3.5 w-3.5 text-primary" /> Settings
+              </Link>
+            </Button>
+          </div>
         </div>
       </header>
-      <div className="grid gap-4 md:grid-cols-[320px_1fr]">
-        <aside className="hidden md:block h-[calc(100vh-8rem)] rounded-lg border border-border/50 bg-card/40 p-3">
-          {sidebar}
-        </aside>
-        <main className="min-w-0">
-          <Outlet />
-        </main>
+
+      {/* Main Grid Content */}
+      <div className="mx-auto max-w-7xl p-4">
+        <div className="grid gap-4 md:grid-cols-[340px_1fr]">
+          <aside className="hidden md:block h-[calc(100vh-6.5rem)] rounded-xl border border-white/10 bg-card/40 backdrop-blur-md p-3.5 shadow-xl shadow-black/40">
+            {sidebar}
+          </aside>
+          <main className="min-w-0">
+            <Outlet />
+          </main>
+        </div>
       </div>
     </div>
   );

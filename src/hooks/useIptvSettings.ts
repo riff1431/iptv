@@ -44,8 +44,11 @@ export function useIptvSettings() {
     providerType === "xtream"
       ? "global:xtream"
       : provider.data?.m3u_url?.trim() || "";
-  const url = (localOverride && localOverride.trim()) || globalUrl || DEMO_M3U_URL;
-  const source: "override" | "global" | "demo" = localOverride
+
+  // When an admin provider is active, use it as default so stale localStorage overrides don't break playback.
+  const hasGlobalProvider = Boolean(globalUrl);
+  const url = (hasGlobalProvider ? globalUrl : localOverride && localOverride.trim()) || DEMO_M3U_URL;
+  const source: "override" | "global" | "demo" = (hasGlobalProvider ? false : Boolean(localOverride))
     ? "override"
     : globalUrl
       ? "global"
