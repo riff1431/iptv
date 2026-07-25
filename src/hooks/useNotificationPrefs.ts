@@ -1,18 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useServerFn } from "@tanstack/react-start";
 import type { Notification } from "@/hooks/useNotifications";
-import {
-  getMyNotifPrefs,
-  saveMyNotifPrefs,
-} from "@/lib/notif-prefs.functions";
+import { getMyNotifPrefs, saveMyNotifPrefs } from "@/lib/notif-prefs.functions";
 
 export type NotifPrefKey =
-  | "hostedMatches"
-  | "liveLobbies"
-  | "walletChanges"
-  | "tips"
-  | "friendRequests"
-  | "system";
+  "hostedMatches" | "liveLobbies" | "walletChanges" | "tips" | "friendRequests" | "system";
 
 export type QuietHours = {
   enabled: boolean;
@@ -60,8 +52,7 @@ export const DEFAULT_PREFS: NotifPrefs = {
   quietHours: DEFAULT_QUIET,
 };
 
-const storageKey = (userId: string | undefined | null) =>
-  `pgx.notif.prefs.${userId ?? "anon"}`;
+const storageKey = (userId: string | undefined | null) => `pgx.notif.prefs.${userId ?? "anon"}`;
 
 const HHMM = /^([01]\d|2[0-3]):([0-5]\d)$/;
 function normalizeHHMM(v: unknown, fallback: string): string {
@@ -80,9 +71,7 @@ function normalizeQuiet(v: unknown): QuietHours {
       start: normalizeHHMM(q.start, DEFAULT_QUIET.start),
       end: normalizeHHMM(q.end, DEFAULT_QUIET.end),
       timezone:
-        typeof q.timezone === "string" && q.timezone.length
-          ? q.timezone
-          : DEFAULT_QUIET.timezone,
+        typeof q.timezone === "string" && q.timezone.length ? q.timezone : DEFAULT_QUIET.timezone,
     };
   }
   return DEFAULT_QUIET;
@@ -148,7 +137,6 @@ export function useNotifPrefs(userId: string | undefined | null) {
   const lastPersistedRef = useRef<string | null>(null);
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-
   // Hydrate: cache-first for instant render, then reconcile with the server.
   useEffect(() => {
     let cancelled = false;
@@ -190,16 +178,13 @@ export function useNotifPrefs(userId: string | undefined | null) {
     };
   }, [key, userId]);
 
-
   // Persist changes: mirror to localStorage immediately, debounce backend save.
   useEffect(() => {
     if (!hydrated) return;
     const serialized = JSON.stringify(prefs);
     try {
       localStorage.setItem(key, serialized);
-      window.dispatchEvent(
-        new CustomEvent(CHANGE_EVENT, { detail: { userId } }),
-      );
+      window.dispatchEvent(new CustomEvent(CHANGE_EVENT, { detail: { userId } }));
     } catch {
       /* ignore */
     }
@@ -227,16 +212,20 @@ export function useNotifPrefs(userId: string | undefined | null) {
     };
   }, [key, prefs, hydrated, userId]);
 
-
   // Cross-tab / cross-hook sync
   useEffect(() => {
+    const syncFromStorage = () => {
+      const next = readNotifPrefs(userId);
+      setPrefsState((current) =>
+        JSON.stringify(current) === JSON.stringify(next) ? current : next,
+      );
+    };
     const onStorage = (e: StorageEvent) => {
-      if (e.key === key) setPrefsState(readNotifPrefs(userId));
+      if (e.key === key) syncFromStorage();
     };
     const onLocal = (e: Event) => {
       const detail = (e as CustomEvent<{ userId?: string | null }>).detail;
-      if (!detail || detail.userId === userId)
-        setPrefsState(readNotifPrefs(userId));
+      if (!detail || detail.userId === userId) syncFromStorage();
     };
     window.addEventListener("storage", onStorage);
     window.addEventListener(CHANGE_EVENT, onLocal as EventListener);
@@ -259,7 +248,6 @@ export function useNotifPrefs(userId: string | undefined | null) {
       setSaveStatus("error");
       setSaveError(err instanceof Error ? err.message : "Failed to save");
     }
-
   }, [prefs, userId]);
 
   return {
@@ -330,10 +318,7 @@ function wallClockMinutes(now: Date, timezone: string): number {
       hour12: false,
     }).formatToParts(now);
     const h = parseInt(parts.find((p) => p.type === "hour")?.value ?? "0", 10);
-    const m = parseInt(
-      parts.find((p) => p.type === "minute")?.value ?? "0",
-      10,
-    );
+    const m = parseInt(parts.find((p) => p.type === "minute")?.value ?? "0", 10);
     return h * 60 + m;
   } catch {
     // Invalid timezone → fall back to local wall clock.
@@ -350,10 +335,7 @@ function wallClockMinutes(now: Date, timezone: string): number {
  *   - DST spring-forward / fall-back: covered by asking Intl what the
  *     wall clock reads at this real instant in the target zone.
  */
-export function isQuietHourNow(
-  quiet: QuietHours,
-  now: Date = new Date(),
-): boolean {
+export function isQuietHourNow(quiet: QuietHours, now: Date = new Date()): boolean {
   if (!quiet.enabled) return false;
   const startMin = toMinutes(quiet.start);
   const endMin = toMinutes(quiet.end);
