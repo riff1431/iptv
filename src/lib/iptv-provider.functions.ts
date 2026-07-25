@@ -3,6 +3,7 @@ import { createClient } from "@supabase/supabase-js";
 import { z } from "zod";
 import { requireAdminServer } from "@/lib/admin-guard";
 import type { Database } from "@/integrations/supabase/types";
+import type { IptvChannel } from "@/lib/iptv-client.server";
 
 /**
  * Global IPTV provider settings — one row in app_settings (id = true).
@@ -177,6 +178,39 @@ export const getPublicIptvProvider = createServerFn({ method: "GET" }).handler(
       xtream_server_url: row?.xtream_server_url ?? "",
       epg_url: row?.epg_url ?? "",
     };
+  },
+);
+
+export const getPublicIptvChannels = createServerFn({ method: "GET" }).handler(
+  async (): Promise<IptvChannel[]> => {
+    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+    const { decryptSecret } = await import("@/lib/iptv-crypto.server");
+    const { fetchChannels } = await import("@/lib/iptv-client.server");
+
+    const { data: row, error } = await supabaseAdmin
+      .from("app_settings")
+      .select(
+        "iptv_provider_type, iptv_m3u_url, iptv_xtream_server_url, iptv_xtream_username, iptv_xtream_password_encrypted",
+      )
+      .eq("id", true)
+      .maybeSingle();
+
+    if (error || !row) return [];
+
+    const type = (row.iptv_provider_type as IptvProviderType) ?? "m3u";
+    const serverUrl = type === "m3u" ? row.iptv_m3u_url : row.iptv_xtream_server_url;
+    if (!serverUrl) return [];
+
+    const password = decryptSecret(row.iptv_xtream_password_encrypted);
+
+    const creds = {
+      server_url: serverUrl,
+      username: row.iptv_xtream_username || null,
+      password: password || null,
+      connection_type: type,
+    };
+
+    return fetchChannels(creds);
   },
 );
 

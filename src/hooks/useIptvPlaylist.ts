@@ -85,10 +85,22 @@ async function fetchPlaylist(url: string): Promise<IptvChannel[]> {
   return channels;
 }
 
+import { useServerFn } from "@tanstack/react-start";
+import { getPublicIptvChannels } from "@/lib/iptv-provider.functions";
+
 export function useIptvPlaylist(url: string) {
+  const getChannelsFn = useServerFn(getPublicIptvChannels);
+
   return useQuery({
     queryKey: ["iptv", "playlist", url],
-    queryFn: () => fetchPlaylist(url),
+    queryFn: async () => {
+      if (url === "global:xtream") {
+        const channels = await getChannelsFn();
+        setStatus(url, { source: "direct", at: Date.now() });
+        return channels;
+      }
+      return fetchPlaylist(url);
+    },
     enabled: Boolean(url),
     staleTime: 5 * 60 * 1000,
     retry: false,

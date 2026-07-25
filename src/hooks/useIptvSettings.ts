@@ -39,8 +39,11 @@ export function useIptvSettings() {
     setReady(true);
   }, []);
 
-  const globalUrl = provider.data?.m3u_url?.trim() || "";
   const providerType: "m3u" | "xtream" | null = provider.data?.provider_type ?? null;
+  const globalUrl =
+    providerType === "xtream"
+      ? "global:xtream"
+      : provider.data?.m3u_url?.trim() || "";
   const url = (localOverride && localOverride.trim()) || globalUrl || DEMO_M3U_URL;
   const source: "override" | "global" | "demo" = localOverride
     ? "override"

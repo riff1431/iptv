@@ -25,6 +25,7 @@ export function ChannelList({ channels, favorites, activeId, onToggleFavorite }:
   const [q, setQ] = useState("");
   const [group, setGroup] = useState<string>(ALL);
   const [tab, setTab] = useState<"all" | "favorites">("all");
+  const [displayLimit, setDisplayLimit] = useState(100);
 
   const groups = useMemo(() => {
     const s = new Set<string>();
@@ -32,19 +33,28 @@ export function ChannelList({ channels, favorites, activeId, onToggleFavorite }:
     return Array.from(s).sort();
   }, [channels]);
 
-  const filtered = useMemo(() => {
+  const allFiltered = useMemo(() => {
     const needle = q.trim().toLowerCase();
     const favSet = new Set(favorites);
     return channels
       .filter((c) => (tab === "favorites" ? favSet.has(c.id) : true))
       .filter((c) => (group === ALL ? true : c.group === group))
-      .filter((c) => (needle ? c.name.toLowerCase().includes(needle) : true))
-      .slice(0, 500); // cap for perf on huge lists
+      .filter((c) => (needle ? c.name.toLowerCase().includes(needle) : true));
   }, [channels, favorites, group, q, tab]);
+
+  const displayedChannels = useMemo(() => {
+    return allFiltered.slice(0, displayLimit);
+  }, [allFiltered, displayLimit]);
 
   return (
     <div className="flex h-full flex-col gap-3">
-      <Tabs value={tab} onValueChange={(v) => setTab(v as "all" | "favorites")}>
+      <Tabs
+        value={tab}
+        onValueChange={(v) => {
+          setTab(v as "all" | "favorites");
+          setDisplayLimit(100);
+        }}
+      >
         <TabsList className="grid w-full grid-cols-2">
           <TabsTrigger value="all">All Channels</TabsTrigger>
           <TabsTrigger value="favorites">Favorites</TabsTrigger>
@@ -55,16 +65,25 @@ export function ChannelList({ channels, favorites, activeId, onToggleFavorite }:
         <Input
           placeholder="Search channels..."
           value={q}
-          onChange={(e) => setQ(e.target.value)}
+          onChange={(e) => {
+            setQ(e.target.value);
+            setDisplayLimit(100);
+          }}
           className="pl-8"
         />
       </div>
-      <Select value={group} onValueChange={setGroup}>
+      <Select
+        value={group}
+        onValueChange={(v) => {
+          setGroup(v);
+          setDisplayLimit(100);
+        }}
+      >
         <SelectTrigger>
           <SelectValue placeholder="Category" />
         </SelectTrigger>
         <SelectContent>
-          <SelectItem value={ALL}>All categories</SelectItem>
+          <SelectItem value={ALL}>All categories ({groups.length})</SelectItem>
           {groups.map((g) => (
             <SelectItem key={g} value={g}>
               {g}
@@ -73,11 +92,11 @@ export function ChannelList({ channels, favorites, activeId, onToggleFavorite }:
         </SelectContent>
       </Select>
       <div className="flex-1 overflow-y-auto pr-1">
-        {filtered.length === 0 ? (
+        {displayedChannels.length === 0 ? (
           <p className="p-4 text-center text-sm text-muted-foreground">No channels match.</p>
         ) : (
           <div className="flex flex-col gap-1.5">
-            {filtered.map((c) => (
+            {displayedChannels.map((c) => (
               <ChannelCard
                 key={c.id}
                 channel={c}
@@ -88,10 +107,28 @@ export function ChannelList({ channels, favorites, activeId, onToggleFavorite }:
             ))}
           </div>
         )}
-        {channels.length > 500 && (
-          <p className="p-3 text-center text-xs text-muted-foreground">
-            Showing first 500 matches — refine your search to narrow.
-          </p>
+        {displayLimit < allFiltered.length && (
+          <div className="my-3 flex flex-col items-center gap-2">
+            <p className="text-xs text-muted-foreground">
+              Showing {displayedChannels.length} of {allFiltered.length} channels
+            </p>
+            <div className="flex gap-2">
+              <button
+                type="button"
+                onClick={() => setDisplayLimit((prev) => prev + 100)}
+                className="rounded-md border border-border bg-card px-3 py-1.5 text-xs font-medium hover:bg-accent hover:text-accent-foreground"
+              >
+                Load More (+100)
+              </button>
+              <button
+                type="button"
+                onClick={() => setDisplayLimit(allFiltered.length)}
+                className="rounded-md border border-border bg-card px-3 py-1.5 text-xs font-medium text-muted-foreground hover:bg-accent hover:text-accent-foreground"
+              >
+                Show All ({allFiltered.length})
+              </button>
+            </div>
+          </div>
         )}
       </div>
     </div>

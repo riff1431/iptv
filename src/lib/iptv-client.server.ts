@@ -1,12 +1,8 @@
 // Server-only IPTV client. Supports Xtream Codes API and raw M3U playlists.
 // Never call from client code; imports require server env.
 
-export interface IptvChannel {
-  id: string;
-  name: string;
-  logo: string | null;
-  group: string | null;
-}
+import type { IptvChannel } from "@/lib/m3u-parser";
+export type { IptvChannel };
 
 export interface IptvCredentials {
   server_url: string;
@@ -163,6 +159,11 @@ export async function xtreamChannels(creds: IptvCredentials): Promise<IptvChanne
     name: String(s.name ?? "").trim() || `Channel ${s.stream_id}`,
     logo: s.stream_icon ? String(s.stream_icon) : null,
     group: catMap.get(String(s.category_id)) ?? null,
+    tvgId: s.custom_sid ? String(s.custom_sid) : null,
+    tvgName: s.name ? String(s.name) : null,
+    url: `${base}/live/${encodeURIComponent(creds.username ?? "")}/${encodeURIComponent(
+      creds.password ?? "",
+    )}/${encodeURIComponent(s.stream_id)}.m3u8`,
   }));
 }
 
@@ -201,6 +202,9 @@ export function parseM3U(text: string): IptvChannel[] {
         name: pending.name!,
         logo: pending.logo ?? null,
         group: pending.group ?? null,
+        tvgId: pending.id || null,
+        tvgName: pending.name!,
+        url: line,
       });
       pending = null;
     }
