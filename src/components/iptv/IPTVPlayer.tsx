@@ -106,7 +106,15 @@ export function IPTVPlayer({ url, poster }: Props) {
     video.addEventListener("waiting", onWaiting);
     video.addEventListener("error", onSrcError);
 
-    const isHls = /\.m3u8($|\?)/i.test(url);
+    const PROXY_PATH = "/api/public/iptv/playlist";
+    const isHttpsPage = typeof window !== "undefined" && window.location.protocol === "https:";
+    const isHttpTarget = /^http:\/\//i.test(url);
+    const targetPlaybackUrl =
+      (isHttpsPage && isHttpTarget) || (isHttpTarget && !url.startsWith(PROXY_PATH))
+        ? `${PROXY_PATH}?url=${encodeURIComponent(url)}`
+        : url;
+
+    const isHls = /\.m3u8($|\?)/i.test(url) || targetPlaybackUrl.includes(PROXY_PATH);
     if (isHls && Hls.isSupported()) {
       hls = new Hls({ enableWorker: true });
       hls.on(Hls.Events.MANIFEST_LOADING, () => {
@@ -131,7 +139,7 @@ export function IPTVPlayer({ url, poster }: Props) {
       hls.on(Hls.Events.FRAG_LOADED, () => {
         setLoadProgress((p) => (p !== null && p < 95 ? 95 : p));
       });
-      hls.loadSource(url);
+      hls.loadSource(targetPlaybackUrl);
       hls.attachMedia(video);
       hls.on(Hls.Events.ERROR, (_e, data) => {
         if (!data.fatal || !hls) return;
@@ -158,7 +166,7 @@ export function IPTVPlayer({ url, poster }: Props) {
         setLoading(false);
       });
     } else {
-      video.src = url;
+      video.src = targetPlaybackUrl;
     }
     video.play().catch(() => {
       /* autoplay may be blocked; the custom controls let the user start */
