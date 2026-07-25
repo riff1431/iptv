@@ -264,6 +264,6 @@ export const previewIptvChannelsAdmin = createServerFn({ method: "GET" })
       provider_type: type,
       totalChannels: channels.length,
       categories: Array.from(categorySet).sort(),
-      channels: channels.slice(0, 500),
+      channels: channels,
     };
   });

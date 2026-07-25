@@ -16,8 +16,9 @@ import {
   Search,
   CheckCircle2,
   XCircle,
-  Play,
   ListFilter,
+  Plus,
+  ChevronDown,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -46,7 +47,6 @@ import {
   testIptvProviderAdmin,
   previewIptvChannelsAdmin,
   type IptvProviderType,
-  type AdminChannelPreviewResponse,
 } from "@/lib/iptv-provider.functions";
 
 export const Route = createFileRoute("/admin/iptv-provider")({
@@ -93,6 +93,7 @@ function AdminIptvProviderPage() {
   const [previewOpen, setPreviewOpen] = useState(false);
   const [previewSearch, setPreviewSearch] = useState("");
   const [selectedCategory, setSelectedCategory] = useState<string>("ALL");
+  const [visibleCount, setVisibleCount] = useState(100);
 
   const previewQuery = useQuery({
     queryKey: ["admin", "iptv-provider-preview"],
@@ -113,6 +114,11 @@ function AdminIptvProviderPage() {
       });
     }
   }, [query.data]);
+
+  // Reset pagination when search query or category changes
+  useEffect(() => {
+    setVisibleCount(100);
+  }, [previewSearch, selectedCategory]);
 
   const save = useMutation({
     mutationFn: (opts?: { clearPassword?: boolean }) =>
@@ -165,7 +171,7 @@ function AdminIptvProviderPage() {
 
   const hasPw = query.data?.has_xtream_password ?? false;
 
-  // Filtered channels for preview
+  // Filtered channels across all items
   const filteredChannels = useMemo(() => {
     if (!previewQuery.data?.channels) return [];
     let list = previewQuery.data.channels;
@@ -180,6 +186,10 @@ function AdminIptvProviderPage() {
     }
     return list;
   }, [previewQuery.data, selectedCategory, previewSearch]);
+
+  const visibleChannels = useMemo(() => {
+    return filteredChannels.slice(0, visibleCount);
+  }, [filteredChannels, visibleCount]);
 
   return (
     <div className="space-y-4">
@@ -424,28 +434,29 @@ function AdminIptvProviderPage() {
         </AlertDialogContent>
       </AlertDialog>
 
-      {/* Interactive Channel List Preview Modal */}
+      {/* Interactive Full Channel List Preview Modal */}
       <Dialog open={previewOpen} onOpenChange={setPreviewOpen}>
-        <DialogContent className="max-w-4xl max-h-[85vh] flex flex-col bg-arena-panel border-arena-border">
-          <DialogHeader>
+        <DialogContent className="max-w-5xl max-h-[90vh] flex flex-col bg-arena-panel border-arena-border p-6">
+          <DialogHeader className="pb-2 border-b border-arena-border">
             <DialogTitle className="flex items-center gap-2 text-lg font-bold">
               <Tv className="h-5 w-5 text-arena-violet" />
-              Live Channels Preview
+              Full Live Channels Preview
               {previewQuery.data && (
-                <Badge variant="secondary" className="ml-auto font-mono text-xs">
-                  {previewQuery.data.totalChannels.toLocaleString()} Total Channels
+                <Badge variant="secondary" className="ml-auto font-mono text-xs bg-arena-violet/20 text-arena-violet">
+                  {previewQuery.data.totalChannels.toLocaleString()} Total Channels Loaded
                 </Badge>
               )}
             </DialogTitle>
             <DialogDescription className="text-xs text-muted-foreground">
-              Live channels fetched from your active IPTV provider ({query.data?.provider_type.toUpperCase()}).
+              All live channels fetched directly from your active IPTV provider ({query.data?.provider_type.toUpperCase()}).
             </DialogDescription>
           </DialogHeader>
 
           {previewQuery.isLoading ? (
-            <div className="flex h-64 items-center justify-center gap-2 text-sm text-muted-foreground">
-              <Loader2 className="h-5 w-5 animate-spin text-arena-violet" />
-              Fetching live channels from provider server…
+            <div className="flex h-72 flex-col items-center justify-center gap-3 text-sm text-muted-foreground">
+              <Loader2 className="h-7 w-7 animate-spin text-arena-violet" />
+              <p>Fetching full channel list from provider server…</p>
+              <span className="text-xs text-muted-foreground/60">Parsing streams and categories</span>
             </div>
           ) : previewQuery.isError ? (
             <div className="flex h-64 flex-col items-center justify-center gap-2 p-6 text-center text-rose-400">
@@ -456,20 +467,20 @@ function AdminIptvProviderPage() {
               </p>
             </div>
           ) : (
-            <div className="flex flex-1 flex-col gap-3 overflow-hidden pt-2">
+            <div className="flex flex-1 flex-col gap-3 overflow-hidden pt-3">
               {/* Search & Category Filter */}
-              <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+              <div className="flex flex-col gap-2.5 sm:flex-row sm:items-center">
                 <div className="relative flex-1">
                   <Search className="absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" />
                   <Input
-                    placeholder="Search channel name or group…"
+                    placeholder="Search all 18,000+ channels by name or category…"
                     value={previewSearch}
                     onChange={(e) => setPreviewSearch(e.target.value)}
-                    className="pl-9"
+                    className="pl-9 bg-arena-panel-2/50"
                   />
                 </div>
                 {previewQuery.data?.categories && previewQuery.data.categories.length > 0 && (
-                  <div className="flex items-center gap-2 sm:w-64">
+                  <div className="flex items-center gap-2 sm:w-72">
                     <ListFilter className="h-4 w-4 text-muted-foreground shrink-0" />
                     <select
                       value={selectedCategory}
@@ -488,12 +499,18 @@ function AdminIptvProviderPage() {
               </div>
 
               {/* Channel Count Bar */}
-              <div className="flex items-center justify-between text-xs text-muted-foreground px-1">
+              <div className="flex items-center justify-between text-xs text-muted-foreground px-1 py-1 bg-arena-panel-2/30 rounded px-2">
                 <span>
-                  Showing {filteredChannels.length} of {previewQuery.data?.totalChannels.toLocaleString()} channels
+                  Showing <strong className="text-white">{visibleChannels.length}</strong> of{" "}
+                  <strong className="text-white">{filteredChannels.length.toLocaleString()}</strong> matching channels
+                  {filteredChannels.length !== previewQuery.data?.totalChannels && (
+                    <span className="text-muted-foreground/60 ml-1">
+                      (filtered from {previewQuery.data?.totalChannels.toLocaleString()})
+                    </span>
+                  )}
                 </span>
                 {selectedCategory !== "ALL" && (
-                  <Badge variant="outline" className="text-[10px]">
+                  <Badge variant="outline" className="text-[10px] border-arena-violet/40 text-arena-violet">
                     Category: {selectedCategory}
                   </Badge>
                 )}
@@ -502,11 +519,11 @@ function AdminIptvProviderPage() {
               {/* Channel Grid */}
               <div className="grid flex-1 gap-2 overflow-y-auto pr-1 sm:grid-cols-2 lg:grid-cols-3 max-h-[55vh]">
                 {filteredChannels.length === 0 ? (
-                  <div className="col-span-full py-12 text-center text-xs text-muted-foreground">
-                    No channels match your search filter.
+                  <div className="col-span-full py-16 text-center text-xs text-muted-foreground">
+                    No channels match your search filter "{previewSearch}".
                   </div>
                 ) : (
-                  filteredChannels.map((ch) => (
+                  visibleChannels.map((ch) => (
                     <div
                       key={ch.id}
                       className="flex items-center gap-3 rounded-lg border border-arena-border bg-arena-panel-2/40 p-2.5 transition hover:border-arena-violet/50 hover:bg-arena-panel-2/80"
@@ -538,6 +555,31 @@ function AdminIptvProviderPage() {
                   ))
                 )}
               </div>
+
+              {/* Load More Pagination Bar */}
+              {filteredChannels.length > visibleCount && (
+                <div className="flex items-center justify-center gap-3 border-t border-arena-border pt-3">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setVisibleCount((prev) => prev + 100)}
+                    className="gap-2 border-arena-violet/40 text-xs"
+                  >
+                    <ChevronDown className="h-4 w-4" />
+                    Load More Channels (+100)
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => setVisibleCount(filteredChannels.length)}
+                    className="text-xs text-muted-foreground hover:text-white"
+                  >
+                    Show All ({filteredChannels.length.toLocaleString()})
+                  </Button>
+                </div>
+              )}
             </div>
           )}
         </DialogContent>
