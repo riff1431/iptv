@@ -445,8 +445,27 @@ export const Route = createFileRoute("/api/public/iptv/playlist")({
               headers: { ...cacheHeaders, "X-Request-Id": requestId, ...CORS },
             });
           }
-          if (!upstream.ok) {
+          if (!upstream.ok && upstream.status !== 458) {
             return reject(502, `Upstream returned HTTP ${upstream.status}`);
+          }
+
+          const contentType = upstream.headers.get("content-type") || "";
+          const isMediaOrBinary =
+            upstream.status === 458 ||
+            contentType.includes("video") ||
+            contentType.includes("audio") ||
+            contentType.includes("octet-stream");
+
+          if (isMediaOrBinary && upstream.body) {
+            return new Response(upstream.body, {
+              status: 200,
+              headers: {
+                "Content-Type": contentType || "video/mp2t",
+                "Cache-Control": "no-cache, no-store, must-revalidate",
+                "X-Request-Id": requestId,
+                ...CORS,
+              },
+            });
           }
           const contentLength = Number(upstream.headers.get("content-length") || 0);
           if (contentLength > MAX_BYTES) {
