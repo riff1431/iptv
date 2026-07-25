@@ -1,0 +1,77 @@
+name: Deploy Health Check
+
+on:
+  workflow_dispatch:
+    inputs:
+      base_url:
+        description: "Target origin (e.g. https://your-app.lovable.app). Leave blank for local dev server."
+        required: false
+        default: ""
+  push:
+  pull_request:
+
+jobs:
+  health:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install JS dependencies
+        if: ${{ github.event.inputs.base_url == '' }}
+        run: bun install --frozen-lockfile
+
+      - name: Install Playwright Chromium
+        run: bunx playwright install --with-deps chromium
+
+      - name: Start dev server
+        if: ${{ github.event.inputs.base_url == '' }}
+        run: |
+          mkdir -p /tmp/devserver
+          nohup bun run dev > /tmp/devserver/dev.log 2>&1 &
+          echo $! > .devserver.pid
+
+      - name: Wait for dev server
+        if: ${{ github.event.inputs.base_url == '' }}
+        run: |
+          set -euo pipefail
+          DEADLINE=$(( $(date +%s) + 120 ))
+          while :; do
+            if [ -f .devserver.pid ] && ! kill -0 "$(cat .devserver.pid)" 2>/dev/null; then
+              echo "::error::Dev server exited"; tail -n 200 /tmp/devserver/dev.log; exit 1
+            fi
+            code=$(curl -s -o /dev/null -w "%{http_code}" --max-time 5 http://localhost:8080/ || echo 000)
+            if [ "${code}" -ge 200 ] && [ "${code}" -lt 400 ]; then break; fi
+            if [ "$(date +%s)" -ge "${DEADLINE}" ]; then
+              echo "::error::Dev server not ready in 120s"; tail -n 200 /tmp/devserver/dev.log; exit 1
+            fi
+            sleep 2
+          done
+
+      - name: Run deploy health check
+        env:
+          BASE_URL: ${{ github.event.inputs.base_url }}
+          API_KEY: ${{ secrets.HEALTH_CHECK_API_KEY }}
+        run: node scripts/deploy-health-check.mjs
+
+      - name: Stop dev server
+        if: ${{ always() && github.event.inputs.base_url == '' }}
+        run: '[ -f .devserver.pid ] && kill "$(cat .devserver.pid)" || true'
+
+      - name: Upload dev server log on failure
+        if: failure() && github.event.inputs.base_url == ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: deploy-health-devserver-log
+          path: /tmp/devserver/dev.log
+          if-no-files-found: ignore

@@ -1,0 +1,17 @@
+User-agent: *
+Allow: /
+
+# Authenticated / user-only surfaces — no SEO value, keep out of the index.
+Disallow: /auth
+Disallow: /forgot-password
+Disallow: /reset-password
+Disallow: /dashboard
+Disallow: /wallet
+Disallow: /profile
+Disallow: /friends
+Disallow: /messages
+Disallow: /admin
+Disallow: /forbidden
+Disallow: /api/
+
+Sitemap: /sitemap.xml

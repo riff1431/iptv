@@ -1,0 +1,1 @@
+CREATE INDEX IF NOT EXISTS idx_channels_cache_fetched_at ON public.iptv_channels_cache (fetched_at DESC);

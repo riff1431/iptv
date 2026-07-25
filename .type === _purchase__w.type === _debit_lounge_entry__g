@@ -1,0 +1,3 @@
+    if (|| w.type === "purchase") {
+      .filter((w) => || w.type === "purchase")
+      .filter((w) => (|| w.type === "purchase") && w.created_at >= data.since24h)

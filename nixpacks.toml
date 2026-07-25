@@ -1,0 +1,18 @@
+providers = ["node"]
+
+[variables]
+NIXPACKS_NODE_VERSION = "22"
+# Build a self-hostable Node server instead of the default Cloudflare Workers preset.
+NITRO_PRESET = "node-server"
+# Listen on all interfaces so Dokploy can reach the container.
+HOST = "0.0.0.0"
+PORT = "3000"
+
+[phases.install]
+cmds = ["bun install --frozen-lockfile"]
+
+[phases.build]
+cmds = ["bun run build"]
+
+[start]
+cmd = "node .output/server/index.mjs"

@@ -1,0 +1,85 @@
+{
+  "version": 1,
+  "sdk_version": "0.23.0",
+  "path": "/mcp",
+  "auth": {
+    "type": "oauth",
+    "issuer": "https://sornedgutogmisbxkacy.supabase.co/auth/v1",
+    "accepted_audiences": [
+      "authenticated"
+    ]
+  },
+  "mcp": {
+    "server": {
+      "name": "pgx-sports-lounge-mcp",
+      "version": "0.1.0",
+      "title": "PGX Sports Lounge MCP"
+    },
+    "tools": [
+      {
+        "name": "list_lounges",
+        "title": "List public lounges",
+        "description": "List all publicly visible, active PGX Sports Lounge lounges with their TVs, matches, entry fees, and viewer counts.",
+        "annotations": {
+          "readOnlyHint": true,
+          "idempotentHint": true,
+          "openWorldHint": false
+        },
+        "inputSchema": {
+          "$schema": "http://json-schema.org/draft-07/schema#",
+          "type": "object",
+          "properties": {}
+        },
+        "outputSchema": null
+      },
+      {
+        "name": "list_matches",
+        "title": "List public matches",
+        "description": "List all active PGX standalone matches with scores, status, and channel slots.",
+        "annotations": {
+          "readOnlyHint": true,
+          "idempotentHint": true,
+          "openWorldHint": false
+        },
+        "inputSchema": {
+          "$schema": "http://json-schema.org/draft-07/schema#",
+          "type": "object",
+          "properties": {}
+        },
+        "outputSchema": null
+      },
+      {
+        "name": "wallet_balance",
+        "title": "Get wallet balance",
+        "description": "Return the signed-in user's PGX wallet balance in cents, plus totals and recent transactions.",
+        "annotations": {
+          "readOnlyHint": true,
+          "idempotentHint": true,
+          "openWorldHint": false
+        },
+        "inputSchema": {
+          "$schema": "http://json-schema.org/draft-07/schema#",
+          "type": "object",
+          "properties": {}
+        },
+        "outputSchema": null
+      },
+      {
+        "name": "my_profile",
+        "title": "Get my profile",
+        "description": "Return the signed-in user's PGX profile (id, display name, username, avatar).",
+        "annotations": {
+          "readOnlyHint": true,
+          "idempotentHint": true,
+          "openWorldHint": false
+        },
+        "inputSchema": {
+          "$schema": "http://json-schema.org/draft-07/schema#",
+          "type": "object",
+          "properties": {}
+        },
+        "outputSchema": null
+      }
+    ]
+  }
+}
