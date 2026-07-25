@@ -11,7 +11,7 @@ export const getRouter = () => {
     scrollRestoration: true,
     // Prefetch the matched route + its loader data on hover/focus/touchstart
     // so client-side navigations to deep links (arena matches, lounges, iptv)
-    // feel instant. Query owns cache freshness (defaultPreloadStaleTime: 0).
+    // feel instant. Query owns cache freshness (defaultPreloadStaleTime: 0) sdasda.
     defaultPreload: "intent",
     defaultPreloadDelay: 50,
     defaultPreloadStaleTime: 0,
