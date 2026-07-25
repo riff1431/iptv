@@ -243,7 +243,7 @@ function WalletPage() {
     to?: string;
     replace?: boolean;
   }) => Promise<void>;
-  const search = Route.useSearch();
+  const search = Route.useSearch() as SearchState;
   const qc = useQueryClient();
 
   const overviewFn = useServerFn(getWalletOverview);

@@ -34,10 +34,10 @@ console.log(dim(`  .nvmrc requires: v${required} (major ${requiredMajor})`));
 console.log(dim(`  runtime:         v${actual} (major ${actualMajor})`));
 console.log(dim(`  platform:        ${process.platform}/${process.arch}`));
 
-if (actualMajor !== requiredMajor) {
+if (Number(actualMajor) < Number(requiredMajor)) {
   console.error(
     red(
-      `[preflight] Node major ${actualMajor} does not match required ${requiredMajor}.`,
+      `[preflight] Node major ${actualMajor} is lower than required minimum ${requiredMajor}.`,
     ),
   );
   console.error(
