@@ -31,7 +31,7 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/comp
 // icon for quicker visual scanning in the header.
 type NavLink = {
   label: string;
-  to: "/" | "/lobby" | "/schedule" | "/arena" | "/iptv" | "/messages" | "/wallet";
+  to: "/" | "/lobby" | "/schedule" | "/iptv" | "/messages" | "/wallet";
   icon: LucideIcon;
   adminOnly?: boolean;
 };
@@ -39,7 +39,6 @@ const NAV_LINKS: NavLink[] = [
   { label: "Home", to: "/", icon: Home },
   { label: "Lobby", to: "/lobby", icon: Tv },
   { label: "Schedule", to: "/schedule", icon: Calendar },
-  { label: "Arena", to: "/arena", icon: Trophy },
   { label: "Messages", to: "/messages", icon: MessageCircle },
   { label: "Wallet", to: "/wallet", icon: Wallet },
 ];
