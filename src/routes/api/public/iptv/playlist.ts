@@ -286,12 +286,16 @@ async function fetchWithRedirects(
   maxHops = 5,
 ): Promise<Response> {
   let curr = initialUrl;
+  const currentHeaders = { ...headers };
   for (let i = 0; i < maxHops; i++) {
+    delete currentHeaders["Host"];
+    delete currentHeaders["host"];
+    delete currentHeaders["Host".toLowerCase()];
     const res = await fetch(curr.toString(), {
       method: "GET",
       redirect: "manual",
       signal,
-      headers,
+      headers: currentHeaders,
     });
     if (res.status >= 300 && res.status < 400) {
       const loc = res.headers.get("location");
