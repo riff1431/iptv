@@ -23,6 +23,7 @@ import { ArenaHeader } from "@/components/sports-arena/ArenaHeader";
 import { useLiveTick, liveViewers, liveIsLive } from "@/hooks/useLiveTick";
 import { SportImage } from "@/components/SportImage";
 import { getRequestOrigin } from "@/lib/origin.functions";
+import { AppShell } from "@/components/AppShell";
 
 type SortKey = "trending" | "viewers" | "alpha";
 
@@ -183,164 +184,162 @@ function ArenaBrowsePage() {
   }, [pinned]);
 
   return (
-    <>
-      <main className="mx-auto max-w-[1600px] px-3 pt-3 sm:px-4 sm:pt-4 lg:px-6">
-        <ArenaHeader liveGames={filtered.length} viewers={totalViewers} />
+    <main className="mx-auto max-w-[1600px] px-3 pt-3 sm:px-4 sm:pt-4 lg:px-6">
+      <ArenaHeader liveGames={filtered.length} viewers={totalViewers} />
 
-        <div className="mb-3 flex items-center justify-end">
-          {rtStatus === "live" && (
-            <span
-              className="inline-flex items-center gap-1.5 rounded-full border border-emerald-500/30 bg-emerald-500/10 px-2.5 py-1 text-[11px] font-medium text-emerald-300"
-              title="Realtime updates connected"
-            >
-              <Wifi className="h-3 w-3" />
-              <span className="relative flex h-1.5 w-1.5">
-                <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-75" />
-                <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-emerald-400" />
-              </span>
-              Live
-            </span>
-          )}
-          {rtStatus === "connecting" && (
-            <span className="inline-flex items-center gap-1.5 rounded-full border border-arena-border bg-arena-panel-2/60 px-2.5 py-1 text-[11px] font-medium text-muted-foreground">
-              <RefreshCw className="h-3 w-3 animate-spin" />
-              Connecting…
-            </span>
-          )}
-          {rtStatus === "error" && (
-            <div
-              role="alert"
-              className="inline-flex items-center gap-2 rounded-full border border-amber-500/40 bg-amber-500/10 px-2.5 py-1 text-[11px] font-medium text-amber-300"
-              title={rtError ?? "Realtime disconnected"}
-            >
-              <WifiOff className="h-3 w-3" />
-              <span className="inline-flex items-center gap-1">
-                <AlertTriangle className="h-3 w-3" />
-                Live updates unavailable
-              </span>
-              <span className="text-amber-200/70">— polling every 15s</span>
-              <button
-                type="button"
-                onClick={retryRealtime}
-                className="ml-1 inline-flex items-center gap-1 rounded-full bg-amber-500/20 px-2 py-0.5 text-amber-100 hover:bg-amber-500/30"
-              >
-                <RefreshCw className="h-3 w-3" />
-                Retry
-              </button>
-            </div>
-          )}
-        </div>
-
-        <section
-          className={`mb-5 rounded-2xl border border-arena-border bg-arena-panel/90 p-3 backdrop-blur-xl sm:p-4 ${
-            pinned ? "sticky top-14 z-30 shadow-[0_10px_30px_-15px_rgba(0,0,0,0.6)] sm:top-16" : ""
-          }`}
-        >
-          <div className="flex flex-col gap-3 lg:flex-row lg:items-center">
-            <label className="relative flex-1">
-              <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-              <input
-                value={q}
-                onChange={(e) => update({ q: e.target.value })}
-                placeholder="Search match, team or sport…"
-                className="h-10 w-full rounded-lg border border-arena-border bg-arena-panel-2/60 pl-9 pr-3 text-sm text-white placeholder:text-muted-foreground focus:border-arena-violet focus:outline-none"
-              />
-            </label>
-
-            <div className="flex flex-wrap items-center gap-2">
-              <FilterSelect
-                label="Sport"
-                value={sport}
-                onChange={(v) => update({ sport: v })}
-                options={[
-                  { value: "all", label: "All sports" },
-                  ...sports.map((s) => ({ value: s, label: s })),
-                ]}
-              />
-              {hasFilters && (
-                <button
-                  onClick={() =>
-                    navigate({ search: { q: "", sport: "all", sort: "trending" }, replace: true })
-                  }
-                  className="inline-flex h-10 items-center gap-1.5 rounded-lg border border-arena-border bg-transparent px-3 text-[11px] font-bold uppercase tracking-wider text-muted-foreground transition hover:border-white/30 hover:text-white"
-                >
-                  <X className="h-3.5 w-3.5" /> Clear
-                </button>
-              )}
-            </div>
-          </div>
-
-          <div className="mt-3 flex flex-col gap-2 border-t border-arena-border pt-3 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between sm:gap-3">
-            <div className="flex items-center justify-between gap-2 sm:justify-start">
-              <div className="inline-flex items-center gap-2 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
-                <SlidersHorizontal className="h-3.5 w-3.5" />
-                Sort by
-              </div>
-              <button
-                type="button"
-                onClick={() => setPinned((p) => !p)}
-                aria-pressed={pinned}
-                title={pinned ? "Unpin filters" : "Pin filters to top"}
-                className={`inline-flex items-center gap-1.5 rounded-md border px-2 py-1 text-[10px] font-bold uppercase tracking-wider transition sm:ml-3 ${
-                  pinned
-                    ? "border-arena-violet/60 bg-arena-violet/15 text-arena-violet"
-                    : "border-arena-border bg-transparent text-muted-foreground hover:border-white/30 hover:text-white"
-                }`}
-              >
-                {pinned ? <Pin className="h-3 w-3" /> : <PinOff className="h-3 w-3" />}
-                {pinned ? "Pinned" : "Pin"}
-              </button>
-            </div>
-
-            <div className="-mx-1 flex gap-1 overflow-x-auto px-1 sm:mx-0 sm:flex-wrap sm:overflow-visible sm:px-0">
-              {(
-                [
-                  { key: "trending", label: "Trending" },
-                  { key: "viewers", label: "Most watched" },
-                  { key: "alpha", label: "A → Z" },
-                ] as Array<{ key: SortKey; label: string }>
-              ).map((opt) => (
-                <button
-                  key={opt.key}
-                  onClick={() => update({ sort: opt.key })}
-                  className={`shrink-0 rounded-md px-3 py-1.5 text-[11px] font-bold uppercase tracking-wider transition ${
-                    sort === opt.key
-                      ? "bg-arena-violet text-white"
-                      : "text-muted-foreground hover:bg-white/5 hover:text-white"
-                  }`}
-                >
-                  {opt.label}
-                </button>
-              ))}
-            </div>
-          </div>
-        </section>
-
-        <div className="mb-3 flex flex-wrap items-center justify-between gap-2 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
-          <span>
-            {filtered.length} {filtered.length === 1 ? "match" : "matches"}
-          </span>
-        </div>
-
-        {filtered.length === 0 ? (
-          <EmptyState
-            onReset={() =>
-              navigate({ search: { q: "", sport: "all", sort: "trending" }, replace: true })
-            }
-          />
-        ) : (
-          <div
-            className={`grid grid-cols-1 gap-4 transition-opacity duration-300 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 ${
-              isRefetching ? "opacity-80" : "opacity-100"
-            }`}
+      <div className="mb-3 flex items-center justify-end">
+        {rtStatus === "live" && (
+          <span
+            className="inline-flex items-center gap-1.5 rounded-full border border-emerald-500/30 bg-emerald-500/10 px-2.5 py-1 text-[11px] font-medium text-emerald-300"
+            title="Realtime updates connected"
           >
-            {filtered.map((m) => (
-              <MatchCard key={m.id} match={m} />
-            ))}
+            <Wifi className="h-3 w-3" />
+            <span className="relative flex h-1.5 w-1.5">
+              <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-75" />
+              <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-emerald-400" />
+            </span>
+            Live
+          </span>
+        )}
+        {rtStatus === "connecting" && (
+          <span className="inline-flex items-center gap-1.5 rounded-full border border-arena-border bg-arena-panel-2/60 px-2.5 py-1 text-[11px] font-medium text-muted-foreground">
+            <RefreshCw className="h-3 w-3 animate-spin" />
+            Connecting…
+          </span>
+        )}
+        {rtStatus === "error" && (
+          <div
+            role="alert"
+            className="inline-flex items-center gap-2 rounded-full border border-amber-500/40 bg-amber-500/10 px-2.5 py-1 text-[11px] font-medium text-amber-300"
+            title={rtError ?? "Realtime disconnected"}
+          >
+            <WifiOff className="h-3 w-3" />
+            <span className="inline-flex items-center gap-1">
+              <AlertTriangle className="h-3 w-3" />
+              Live updates unavailable
+            </span>
+            <span className="text-amber-200/70">— polling every 15s</span>
+            <button
+              type="button"
+              onClick={retryRealtime}
+              className="ml-1 inline-flex items-center gap-1 rounded-full bg-amber-500/20 px-2 py-0.5 text-amber-100 hover:bg-amber-500/30"
+            >
+              <RefreshCw className="h-3 w-3" />
+              Retry
+            </button>
           </div>
         )}
-      </main>
-    </>
+      </div>
+
+      <section
+        className={`mb-5 rounded-2xl border border-arena-border bg-arena-panel/90 p-3 backdrop-blur-xl sm:p-4 ${
+          pinned ? "sticky top-14 z-30 shadow-[0_10px_30px_-15px_rgba(0,0,0,0.6)] sm:top-16" : ""
+        }`}
+      >
+        <div className="flex flex-col gap-3 lg:flex-row lg:items-center">
+          <label className="relative flex-1">
+            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+            <input
+              value={q}
+              onChange={(e) => update({ q: e.target.value })}
+              placeholder="Search match, team or sport…"
+              className="h-10 w-full rounded-lg border border-arena-border bg-arena-panel-2/60 pl-9 pr-3 text-sm text-white placeholder:text-muted-foreground focus:border-arena-violet focus:outline-none"
+            />
+          </label>
+
+          <div className="flex flex-wrap items-center gap-2">
+            <FilterSelect
+              label="Sport"
+              value={sport}
+              onChange={(v) => update({ sport: v })}
+              options={[
+                { value: "all", label: "All sports" },
+                ...sports.map((s) => ({ value: s, label: s })),
+              ]}
+            />
+            {hasFilters && (
+              <button
+                onClick={() =>
+                  navigate({ search: { q: "", sport: "all", sort: "trending" }, replace: true })
+                }
+                className="inline-flex h-10 items-center gap-1.5 rounded-lg border border-arena-border bg-transparent px-3 text-[11px] font-bold uppercase tracking-wider text-muted-foreground transition hover:border-white/30 hover:text-white"
+              >
+                <X className="h-3.5 w-3.5" /> Clear
+              </button>
+            )}
+          </div>
+        </div>
+
+        <div className="mt-3 flex flex-col gap-2 border-t border-arena-border pt-3 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between sm:gap-3">
+          <div className="flex items-center justify-between gap-2 sm:justify-start">
+            <div className="inline-flex items-center gap-2 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+              <SlidersHorizontal className="h-3.5 w-3.5" />
+              Sort by
+            </div>
+            <button
+              type="button"
+              onClick={() => setPinned((p) => !p)}
+              aria-pressed={pinned}
+              title={pinned ? "Unpin filters" : "Pin filters to top"}
+              className={`inline-flex items-center gap-1.5 rounded-md border px-2 py-1 text-[10px] font-bold uppercase tracking-wider transition sm:ml-3 ${
+                pinned
+                  ? "border-arena-violet/60 bg-arena-violet/15 text-arena-violet"
+                  : "border-arena-border bg-transparent text-muted-foreground hover:border-white/30 hover:text-white"
+              }`}
+            >
+              {pinned ? <Pin className="h-3 w-3" /> : <PinOff className="h-3 w-3" />}
+              {pinned ? "Pinned" : "Pin"}
+            </button>
+          </div>
+
+          <div className="-mx-1 flex gap-1 overflow-x-auto px-1 sm:mx-0 sm:flex-wrap sm:overflow-visible sm:px-0">
+            {(
+              [
+                { key: "trending", label: "Trending" },
+                { key: "viewers", label: "Most watched" },
+                { key: "alpha", label: "A → Z" },
+              ] as Array<{ key: SortKey; label: string }>
+            ).map((opt) => (
+              <button
+                key={opt.key}
+                onClick={() => update({ sort: opt.key })}
+                className={`shrink-0 rounded-md px-3 py-1.5 text-[11px] font-bold uppercase tracking-wider transition ${
+                  sort === opt.key
+                    ? "bg-arena-violet text-white"
+                    : "text-muted-foreground hover:bg-white/5 hover:text-white"
+                }`}
+              >
+                {opt.label}
+              </button>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      <div className="mb-3 flex flex-wrap items-center justify-between gap-2 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+        <span>
+          {filtered.length} {filtered.length === 1 ? "match" : "matches"}
+        </span>
+      </div>
+
+      {filtered.length === 0 ? (
+        <EmptyState
+          onReset={() =>
+            navigate({ search: { q: "", sport: "all", sort: "trending" }, replace: true })
+          }
+        />
+      ) : (
+        <div
+          className={`grid grid-cols-1 gap-4 transition-opacity duration-300 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 ${
+            isRefetching ? "opacity-80" : "opacity-100"
+          }`}
+        >
+          {filtered.map((m) => (
+            <MatchCard key={m.id} match={m} />
+          ))}
+        </div>
+      )}
+    </main>
   );
 }
 

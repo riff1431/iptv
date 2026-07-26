@@ -1,6 +1,5 @@
 import { createFileRoute, Outlet } from "@tanstack/react-router";
-import { ArenaTopNav } from "@/components/sports-arena/ArenaTopNav";
-import { ArenaBottomTabs } from "@/components/sports-arena/ArenaBottomTabs";
+import { AppShell } from "@/components/AppShell";
 
 export const Route = createFileRoute("/arena")({
   component: ArenaLayout,
@@ -8,10 +7,8 @@ export const Route = createFileRoute("/arena")({
 
 function ArenaLayout() {
   return (
-    <div className="min-h-screen bg-arena text-white">
-      <ArenaTopNav />
+    <AppShell>
       <Outlet />
-      <ArenaBottomTabs />
-    </div>
+    </AppShell>
   );
 }

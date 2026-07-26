@@ -57,6 +57,7 @@ import { Route as IptvSettingsRouteImport } from './routes/iptv.settings'
 import { Route as LobbyIndexRouteImport } from './routes/lobby.index'
 import { Route as LoungeLoungeIdRouteImport } from './routes/lounge.$loungeId'
 import { Route as MatchesMatchIdRouteImport } from './routes/matches.$matchId'
+import { Route as ScheduleIndexRouteImport } from './routes/schedule.index'
 import { Route as DotlovableOauthConsentRouteImport } from './routes/[.]lovable.oauth.consent'
 import { Route as Char91DotmcpChar93InvokeToolToolRouteImport } from './routes/[.mcp]/invoke-tool/$tool'
 import { Route as EmbedLoungeLoungeIdRouteImport } from './routes/embed.lounge.$loungeId'
@@ -311,6 +312,11 @@ const MatchesMatchIdRoute = MatchesMatchIdRouteImport.update({
   path: '/matches/$matchId',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ScheduleIndexRoute = ScheduleIndexRouteImport.update({
+  id: '/schedule/',
+  path: '/schedule/',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const DotlovableOauthConsentRoute = DotlovableOauthConsentRouteImport.update({
   id: '/.lovable/oauth/consent',
   path: '/.lovable/oauth/consent',
@@ -422,6 +428,7 @@ export interface FileRoutesByFullPath {
   '/arena/': typeof ArenaIndexRoute
   '/iptv/': typeof IptvIndexRoute
   '/lobby/': typeof LobbyIndexRoute
+  '/schedule/': typeof ScheduleIndexRoute
   '/.lovable/oauth/consent': typeof DotlovableOauthConsentRoute
   '/.mcp/invoke-tool/$tool': typeof Char91DotmcpChar93InvokeToolToolRoute
   '/embed/lounge/$loungeId': typeof EmbedLoungeLoungeIdRoute
@@ -481,6 +488,7 @@ export interface FileRoutesByTo {
   '/arena': typeof ArenaIndexRoute
   '/iptv': typeof IptvIndexRoute
   '/lobby': typeof LobbyIndexRoute
+  '/schedule': typeof ScheduleIndexRoute
   '/.lovable/oauth/consent': typeof DotlovableOauthConsentRoute
   '/.mcp/invoke-tool/$tool': typeof Char91DotmcpChar93InvokeToolToolRoute
   '/embed/lounge/$loungeId': typeof EmbedLoungeLoungeIdRoute
@@ -543,6 +551,7 @@ export interface FileRoutesById {
   '/arena/': typeof ArenaIndexRoute
   '/iptv/': typeof IptvIndexRoute
   '/lobby/': typeof LobbyIndexRoute
+  '/schedule/': typeof ScheduleIndexRoute
   '/.lovable/oauth/consent': typeof DotlovableOauthConsentRoute
   '/.mcp/invoke-tool/$tool': typeof Char91DotmcpChar93InvokeToolToolRoute
   '/embed/lounge/$loungeId': typeof EmbedLoungeLoungeIdRoute
@@ -606,6 +615,7 @@ export interface FileRouteTypes {
     | '/arena/'
     | '/iptv/'
     | '/lobby/'
+    | '/schedule/'
     | '/.lovable/oauth/consent'
     | '/.mcp/invoke-tool/$tool'
     | '/embed/lounge/$loungeId'
@@ -665,6 +675,7 @@ export interface FileRouteTypes {
     | '/arena'
     | '/iptv'
     | '/lobby'
+    | '/schedule'
     | '/.lovable/oauth/consent'
     | '/.mcp/invoke-tool/$tool'
     | '/embed/lounge/$loungeId'
@@ -726,6 +737,7 @@ export interface FileRouteTypes {
     | '/arena/'
     | '/iptv/'
     | '/lobby/'
+    | '/schedule/'
     | '/.lovable/oauth/consent'
     | '/.mcp/invoke-tool/$tool'
     | '/embed/lounge/$loungeId'
@@ -764,6 +776,7 @@ export interface RootRouteChildren {
   LoungeLoungeIdRoute: typeof LoungeLoungeIdRoute
   MatchesMatchIdRoute: typeof MatchesMatchIdRoute
   LobbyIndexRoute: typeof LobbyIndexRoute
+  ScheduleIndexRoute: typeof ScheduleIndexRoute
   DotlovableOauthConsentRoute: typeof DotlovableOauthConsentRoute
   Char91DotmcpChar93InvokeToolToolRoute: typeof Char91DotmcpChar93InvokeToolToolRoute
   EmbedLoungeLoungeIdRoute: typeof EmbedLoungeLoungeIdRoute
@@ -1115,6 +1128,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof MatchesMatchIdRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/schedule/': {
+      id: '/schedule/'
+      path: '/schedule'
+      fullPath: '/schedule/'
+      preLoaderRoute: typeof ScheduleIndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/.lovable/oauth/consent': {
       id: '/.lovable/oauth/consent'
       path: '/.lovable/oauth/consent'
@@ -1293,6 +1313,7 @@ const rootRouteChildren: RootRouteChildren = {
   LoungeLoungeIdRoute: LoungeLoungeIdRoute,
   MatchesMatchIdRoute: MatchesMatchIdRoute,
   LobbyIndexRoute: LobbyIndexRoute,
+  ScheduleIndexRoute: ScheduleIndexRoute,
   DotlovableOauthConsentRoute: DotlovableOauthConsentRoute,
   Char91DotmcpChar93InvokeToolToolRoute: Char91DotmcpChar93InvokeToolToolRoute,
   EmbedLoungeLoungeIdRoute: EmbedLoungeLoungeIdRoute,

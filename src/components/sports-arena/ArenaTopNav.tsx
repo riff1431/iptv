@@ -4,12 +4,17 @@ import { Bell, Mail, Settings, ChevronDown } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
 import { supabase } from "@/integrations/supabase/client";
 
-type NavItem = { label: string; to: "/" | "/arena" | "/iptv" | "/messages" | "/wallet"; exact?: boolean };
+type NavItem = {
+  label: string;
+  to: "/" | "/lobby" | "/schedule" | "/arena" | "/iptv" | "/messages" | "/wallet";
+  exact?: boolean;
+};
 const NAV: NavItem[] = [
   { label: "HOME", to: "/", exact: true },
-  { label: "STREAMS", to: "/iptv" },
+  { label: "LOBBY", to: "/lobby" },
+  { label: "SCHEDULE", to: "/schedule" },
   { label: "ARENA", to: "/arena" },
-  { label: "COMMUNITY", to: "/messages" },
+  { label: "MESSAGES", to: "/messages" },
   { label: "WALLET", to: "/wallet" },
 ];
 
@@ -60,10 +65,7 @@ export function ArenaTopNav() {
     };
   }, [user?.id]);
 
-  const name =
-    metaName ??
-    profileName ??
-    (user?.email ? user.email.split("@")[0] : "AlexJ");
+  const name = metaName ?? profileName ?? (user?.email ? user.email.split("@")[0] : "AlexJ");
   const avatarUrl = metaAvatar ?? profileAvatar ?? null;
   const showAvatar = !!avatarUrl && !avatarErrored;
   const showSkeleton = showAvatar && !avatarLoaded;
@@ -73,8 +75,6 @@ export function ArenaTopNav() {
   useEffect(() => {
     setAvatarLoaded(false);
   }, [avatarUrl]);
-
-
 
   return (
     <header className="sticky top-0 z-40 border-b border-arena-border bg-arena-bg/85 backdrop-blur-xl">
@@ -203,4 +203,3 @@ export function ArenaTopNav() {
     </header>
   );
 }
-
