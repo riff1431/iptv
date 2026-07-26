@@ -9,6 +9,7 @@
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { extname, join, relative, resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
+import ts from "typescript";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const root = resolve(__dirname, "..");
@@ -71,24 +72,39 @@ const violations = [];
 for (const file of walk(srcDir)) {
   const src = readFileSync(file, "utf8");
   const lines = src.split("\n");
-  for (let i = 0; i < lines.length; i++) {
-    const line = lines[i];
-    for (const bad of Object.keys(INVALID_PROPS)) {
-      // Match JSX prop usage: whitespace/newline/`<Tag` boundary before, `=` after.
-      // JSX prop boundary: preceded by whitespace or `{`, not by `.`, `-`, or ident chars.
-      const re = new RegExp(`(?<![A-Za-z0-9_$.\\-])${bad}\\s*=(?!=)`, "g");
-      if (re.test(line)) {
+
+  // Parse the file so strings, comments, and text content cannot be mistaken
+  // for JSX attributes (for example, `?autoplay=1` inside an iframe URL).
+  const sourceFile = ts.createSourceFile(
+    file,
+    src,
+    ts.ScriptTarget.Latest,
+    true,
+    ts.ScriptKind.TSX,
+  );
+
+  function visit(node) {
+    if (ts.isJsxAttribute(node)) {
+      const bad = node.name.getText(sourceFile);
+      if (Object.hasOwn(INVALID_PROPS, bad)) {
+        const position = sourceFile.getLineAndCharacterOfPosition(
+          node.name.getStart(sourceFile),
+        );
         violations.push({
           file: relative(root, file),
-          line: i + 1,
-          col: line.indexOf(bad) + 1,
+          line: position.line + 1,
+          col: position.character + 1,
           bad,
           good: INVALID_PROPS[bad],
-          snippet: line.trim(),
+          snippet: lines[position.line].trim(),
         });
       }
     }
+
+    ts.forEachChild(node, visit);
   }
+
+  visit(sourceFile);
 }
 
 console.log(bold("[check-jsx-dom-props] Scanning src/ for invalid JSX DOM properties"));
