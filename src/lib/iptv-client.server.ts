@@ -152,18 +152,13 @@ export async function xtreamChannels(creds: IptvCredentials): Promise<IptvChanne
     if (c?.category_id != null) catMap.set(String(c.category_id), String(c.category_name ?? ""));
   }
   return (Array.isArray(streams) ? streams : []).map((s) => {
-    // Build the raw Xtream stream URL.
+    // Build the raw Xtream stream URL (.ts extension for single-connection stability).
     const rawUrl = `${base}/live/${encodeURIComponent(creds.username ?? "")}/${encodeURIComponent(
       creds.password ?? "",
-    )}/${encodeURIComponent(s.stream_id)}.m3u8`;
+    )}/${encodeURIComponent(s.stream_id)}.ts`;
 
-    // Always route the manifest through our server-side playlist proxy:
-    //   1. Avoids CORS failures — browser only talks to our same-origin server.
-    //   2. Binds the HLS segment token to the server IP (not browser IP), so
-    //      our /stream proxy can fetch those segments from the same server IP.
-    //   3. Prevents mixed-content on https://pgxsportslounge.com when the
-    //      provider serves plain http://.
-    const proxiedUrl = `/api/public/iptv/playlist?url=${encodeURIComponent(rawUrl)}`;
+    // Route through /api/public/iptv/stream proxy for CORS & single-connection passthrough.
+    const proxiedUrl = `/api/public/iptv/stream?url=${encodeURIComponent(rawUrl)}`;
 
     return {
       id: String(s.stream_id),
@@ -179,9 +174,10 @@ export async function xtreamChannels(creds: IptvCredentials): Promise<IptvChanne
 
 export function xtreamStreamUrl(creds: IptvCredentials, channelId: string): string {
   const base = normaliseBase(creds.server_url);
-  return `${base}/live/${encodeURIComponent(creds.username ?? "")}/${encodeURIComponent(
+  const rawUrl = `${base}/live/${encodeURIComponent(creds.username ?? "")}/${encodeURIComponent(
     creds.password ?? "",
-  )}/${encodeURIComponent(channelId)}.m3u8`;
+  )}/${encodeURIComponent(channelId)}.ts`;
+  return `/api/public/iptv/stream?url=${encodeURIComponent(rawUrl)}`;
 }
 
 // ---------- M3U ----------

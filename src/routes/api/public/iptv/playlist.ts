@@ -108,27 +108,11 @@ function validateUrl(raw: string): { ok: true; url: URL } | { ok: false; message
 }
 
 async function readCapped(res: Response, cap: number): Promise<string> {
-  if (!res.body) return await res.text();
-  const reader = res.body.getReader();
-  const decoder = new TextDecoder("utf-8");
-  let out = "";
-  let total = 0;
-  for (;;) {
-    const { value, done } = await reader.read();
-    if (done) break;
-    total += value.byteLength;
-    if (total > cap) {
-      try {
-        await reader.cancel();
-      } catch {
-        /* ignore */
-      }
-      throw new Error(`Playlist exceeds ${Math.round(cap / 1024 / 1024)} MiB limit`);
-    }
-    out += decoder.decode(value, { stream: true });
+  const text = await res.text();
+  if (Buffer.byteLength(text, "utf-8") > cap) {
+    throw new Error(`Playlist exceeds ${Math.round(cap / 1024 / 1024)} MiB limit`);
   }
-  out += decoder.decode();
-  return out;
+  return text;
 }
 
 function errorResponse(status: number, message: string, requestId: string): Response {
@@ -468,7 +452,10 @@ export const Route = createFileRoute("/api/public/iptv/playlist")({
           });
 
           const cacheHeaders: Record<string, string> = {
-            "Cache-Control": "public, max-age=60, stale-while-revalidate=300",
+            // Live HLS manifests must never be cached — hls.js polls them on a
+            // ~10 s cycle to get fresh segment tokens. A stale cached manifest
+            // returns expired tokens that the CDN rejects with 403.
+            "Cache-Control": "no-store",
             Vary: "Accept-Encoding",
           };
           const etag = upstream.headers.get("etag");
@@ -488,11 +475,19 @@ export const Route = createFileRoute("/api/public/iptv/playlist")({
           }
 
           const contentType = upstream.headers.get("content-type") || "";
+
+          // Xtream Codes uses the non-standard HTTP 458 status for live HLS
+          // manifests. The response body is a valid M3U8 text playlist, but
+          // the Content-Type is often wrong ("text/html"). We must read it as
+          // text and rewrite URIs — never pass it through as binary.
+          //
+          // isMediaOrBinary is only true for genuine video/audio binary content
+          // (actual .ts chunks, .mp4 init segments, etc.), NOT for 458 manifests.
           const isMediaOrBinary =
-            upstream.status === 458 ||
-            contentType.includes("video") ||
-            contentType.includes("audio") ||
-            contentType.includes("octet-stream");
+            upstream.status !== 458 &&
+            (contentType.includes("video/") ||
+              contentType.includes("audio/") ||
+              contentType.includes("octet-stream"));
 
           if (isMediaOrBinary && upstream.body) {
             return new Response(upstream.body, {
@@ -510,36 +505,23 @@ export const Route = createFileRoute("/api/public/iptv/playlist")({
             return reject(413, `Playlist exceeds ${Math.round(MAX_BYTES / 1024 / 1024)} MiB limit`);
           }
           const raw = await readCapped(upstream, MAX_BYTES);
-          const text = rewritePlaylist(raw, v.url);
 
-          // Upstream validators reference the ORIGINAL body — since we rewrite
-          // URIs, drop them and synthesise a strong ETag from the rewritten
-          // body so client conditional requests remain consistent.
-          if (text !== raw) {
-            delete cacheHeaders["ETag"];
-            delete cacheHeaders["Last-Modified"];
-          }
-          if (!cacheHeaders["ETag"]) {
-            const digest = await crypto.subtle.digest("SHA-1", new TextEncoder().encode(text));
-            const hex = Array.from(new Uint8Array(digest))
-              .map((b) => b.toString(16).padStart(2, "0"))
-              .join("");
-            cacheHeaders["ETag"] = `"${hex}"`;
+          // Reject empty manifest bodies — an upstream that sends a non-empty
+          // status but zero bytes body is broken or returned an error page.
+          if (!raw.trim()) {
+            return reject(502, "Upstream returned an empty playlist body");
           }
 
-          // Honour client conditional GET against the resolved validator.
-          if (
-            ifNoneMatch &&
-            ifNoneMatch
-              .split(",")
-              .map((s) => s.trim())
-              .includes(cacheHeaders["ETag"])
-          ) {
-            return new Response(null, {
-              status: 304,
-              headers: { ...cacheHeaders, "X-Request-Id": requestId, ...CORS },
-            });
-          }
+          // Use the post-redirect URL as the base for relative URI resolution.
+          // When Xtream issues a 302 → CDN, relative paths like /hls/... must
+          // resolve against the CDN host, not the original Xtream URL.
+          const resolvedBase = upstream.url ? new URL(upstream.url) : v.url;
+          const text = rewritePlaylist(raw, resolvedBase);
+
+          // With Cache-Control: no-store, ETags and conditional GET (304) are
+          // not useful for live manifests. Skip the ETag synthesis and 304 check
+          // entirely to keep the response path simple and avoid any risk of
+          // caching stale token data.
 
           return new Response(text, {
             status: 200,

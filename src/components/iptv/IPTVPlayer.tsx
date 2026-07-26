@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import Hls from "hls.js";
+import mpegts from "mpegts.js";
 import {
   Loader2,
   AlertTriangle,
@@ -64,7 +65,7 @@ export function IPTVPlayer({ url, poster }: Props) {
     video.volume = volume;
   }, [url]);
 
-  // HLS / source setup
+  // HLS / MPEG-TS / source setup
   useEffect(() => {
     const video = videoRef.current;
     if (!video || !url) return;
@@ -74,6 +75,7 @@ export function IPTVPlayer({ url, poster }: Props) {
     setLoadProgress(null);
     setError(null);
     let hls: Hls | null = null;
+    let mpegtsPlayer: mpegts.Player | null = null;
     let recoverAttempts = 0;
 
     const clearLoading = () => {
@@ -83,16 +85,25 @@ export function IPTVPlayer({ url, poster }: Props) {
     };
     const onPlaying = () => clearLoading();
     const onCanPlay = () => clearLoading();
+    const onTimeUpdate = () => {
+      // As soon as video time advances, frames are rendering — clear buffering overlay
+      clearLoading();
+    };
+
+    let waitingTimer: number | null = null;
     const onWaiting = () => {
-      // Mid-playback stall — surface buffering without wiping error state.
-      if (!error) {
-        setLoading(true);
-        setLoadingStage("Buffering…");
-        setLoadProgress(null);
-      }
+      // Debounce transient 50ms MSE buffer catch-ups — only show buffering if stall > 600ms
+      if (waitingTimer) window.clearTimeout(waitingTimer);
+      waitingTimer = window.setTimeout(() => {
+        if (!error && video.paused) {
+          setLoading(true);
+          setLoadingStage("Buffering…");
+          setLoadProgress(null);
+        }
+      }, 600);
     };
     const onSrcError = () => {
-      // Native <video> element error (non-HLS path or Safari native HLS).
+      // Native <video> element error (non-HLS/MPEG-TS path or Safari native player).
       const mediaErr = video.error;
       const code = mediaErr?.code;
       if (code === 2) setError("Network error — the stream could not be reached.");
@@ -103,31 +114,98 @@ export function IPTVPlayer({ url, poster }: Props) {
     };
     video.addEventListener("playing", onPlaying);
     video.addEventListener("canplay", onCanPlay);
+    video.addEventListener("timeupdate", onTimeUpdate);
     video.addEventListener("waiting", onWaiting);
     video.addEventListener("error", onSrcError);
 
-    /**
-     * Always route the stream manifest through our server-side playlist proxy.
-     *
-     * Reasons:
-     *  1. CORS — Xtream providers never send Access-Control-Allow-Origin, so a
-     *     direct browser fetch of the .m3u8 fails before hls.js can even read it.
-     *  2. Token binding — the provider binds the .ts chunk token to the IP that
-     *     fetched the manifest. If the server fetches the manifest, every chunk
-     *     token is bound to the server IP; our /stream proxy then fetches those
-     *     chunks from the same server IP, so the tokens always match.
-     *  3. Mixed-content — production (https://pgxsportslounge.com) must not make
-     *     http:// requests to the Xtream server; the proxy upgrades the hop.
-     */
-    const PROXY_PATH = "/api/public/iptv/playlist";
-    const isXtreamOrCrossOrigin = url.startsWith("http") && !url.startsWith(PROXY_PATH);
-    const targetPlaybackUrl = isXtreamOrCrossOrigin
-      ? `${PROXY_PATH}?url=${encodeURIComponent(url)}`
-      : url;
+    const PROXY_PLAYLIST_PATH = "/api/public/iptv/playlist";
+    const PROXY_STREAM_PATH = "/api/public/iptv/stream";
 
-    const isHls = /\.m3u8($|\?)/i.test(url) || targetPlaybackUrl.includes(PROXY_PATH);
+    const origin = typeof window !== "undefined" ? window.location.origin : "";
 
-    if (isHls && Hls.isSupported()) {
+    // Determine target URL and player type.
+    const isDirectTs = /\.ts($|\?)/i.test(url) || url.includes(PROXY_STREAM_PATH);
+    const isHls = /\.m3u8($|\?)/i.test(url) || url.includes(PROXY_PLAYLIST_PATH);
+
+    let rawPlaybackUrl = url;
+    if (url.startsWith("http://") || url.startsWith("https://")) {
+      if (isDirectTs && !url.includes(PROXY_STREAM_PATH)) {
+        rawPlaybackUrl = `${PROXY_STREAM_PATH}?url=${encodeURIComponent(url)}`;
+      } else if (isHls && !url.includes(PROXY_PLAYLIST_PATH)) {
+        rawPlaybackUrl = `${PROXY_PLAYLIST_PATH}?url=${encodeURIComponent(url)}`;
+      }
+    }
+
+    // Crucial: Web Workers (WorkerGlobalScope) in mpegts.js cannot resolve relative
+    // root URLs like "/api/public/...". We must pass a fully-qualified absolute URL.
+    const targetPlaybackUrl = rawPlaybackUrl.startsWith("/")
+      ? `${origin}${rawPlaybackUrl}`
+      : rawPlaybackUrl;
+
+    const useMpegts = isDirectTs && mpegts.isSupported();
+    const useHls = isHls || (isDirectTs && !mpegts.isSupported());
+
+    if (useMpegts) {
+      setLoadingStage("Connecting live stream…");
+      setLoadProgress(30);
+
+      try {
+        mpegtsPlayer = mpegts.createPlayer(
+          {
+            type: "mpegts", // MPEG-TS demuxer for live streams
+            isLive: true,
+            url: targetPlaybackUrl,
+          },
+          {
+            enableWorker: true, // Offload TS demuxing to Web Worker thread so UI never freezes
+            enableStashBuffer: true, // Absorb network jitter & align AAC-HE / H.264 PTS timestamps
+            stashInitialSize: 384 * 1024, // 384KB initial stash buffer
+            liveBufferLatencyChasing: true,
+            liveBufferLatencyMaxLatency: 3.0,
+            liveBufferLatencyMinRemain: 0.5,
+            lazyLoad: false,
+          },
+        );
+
+        mpegtsPlayer.on(mpegts.Events.MEDIA_INFO, () => {
+          clearLoading();
+        });
+
+        mpegtsPlayer.on(mpegts.Events.STATISTICS_INFO, () => {
+          // Continuous video frames arriving — clear loading overlay if active
+          clearLoading();
+        });
+
+        mpegtsPlayer.on(mpegts.Events.ERROR, (_errType: string, _errDetail: string) => {
+          if (recoverAttempts < 2) {
+            recoverAttempts++;
+            setLoadingStage("Reconnecting stream…");
+            mpegtsPlayer?.unload();
+            mpegtsPlayer?.load();
+          } else {
+            setError("Stream error. The channel may be offline or connection limit reached.");
+            setLoading(false);
+          }
+        });
+
+        mpegtsPlayer.attachMediaElement(video);
+        mpegtsPlayer.load();
+        try {
+          const res = mpegtsPlayer.play();
+          if (res && typeof res.catch === "function") {
+            res.catch(() => {});
+          }
+        } catch {
+          /* autoplay blocked */
+        }
+      } catch {
+        setError("Your browser does not support live MPEG-TS MSE streaming.");
+        setLoading(false);
+      }
+    } else if (useHls && Hls.isSupported()) {
+      const hlsTargetUrl = isDirectTs
+        ? `${origin}${PROXY_PLAYLIST_PATH}?url=${encodeURIComponent(url.replace(/\.ts($|\?)/i, ".m3u8"))}`
+        : targetPlaybackUrl;
       hls = new Hls({
         enableWorker: true,
         // IPTV-tuned live settings — tight sync, generous network tolerance.
@@ -170,7 +248,7 @@ export function IPTVPlayer({ url, poster }: Props) {
         setLoadProgress((p) => (p !== null && p < 95 ? 95 : p));
       });
 
-      hls.loadSource(targetPlaybackUrl);
+      hls.loadSource(hlsTargetUrl);
       hls.attachMedia(video);
 
       hls.on(Hls.Events.ERROR, (_e, data) => {
@@ -237,13 +315,21 @@ export function IPTVPlayer({ url, poster }: Props) {
     });
 
     return () => {
+      if (waitingTimer) window.clearTimeout(waitingTimer);
       video.removeEventListener("playing", onPlaying);
       video.removeEventListener("canplay", onCanPlay);
+      video.removeEventListener("timeupdate", onTimeUpdate);
       video.removeEventListener("waiting", onWaiting);
       video.removeEventListener("error", onSrcError);
+      if (mpegtsPlayer) {
+        mpegtsPlayer.detachMediaElement();
+        mpegtsPlayer.destroy();
+        mpegtsPlayer = null;
+      }
       if (hls) {
         hls.destroy();
-      } else {
+        hls = null;
+      } else if (!mpegtsPlayer) {
         video.removeAttribute("src");
         video.load();
       }

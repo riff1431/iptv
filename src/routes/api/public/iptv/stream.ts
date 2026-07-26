@@ -21,6 +21,7 @@
  */
 
 import { createFileRoute } from "@tanstack/react-router";
+import { Readable } from "node:stream";
 
 // ─── SSRF Guard ────────────────────────────────────────────────────────────
 
@@ -174,7 +175,8 @@ export const Route = createFileRoute("/api/public/iptv/stream")({
           });
 
           // Surface upstream auth / not-found errors as structured JSON.
-          if (!upstream.ok && upstream.status !== 206) {
+          // Note: Xtream Codes servers return HTTP status 458 for live media streams.
+          if (!upstream.ok && upstream.status !== 206 && upstream.status !== 458) {
             return errorJson(
               upstream.status === 403 || upstream.status === 401 ? upstream.status : 502,
               `Upstream returned HTTP ${upstream.status}`,
@@ -202,8 +204,12 @@ export const Route = createFileRoute("/api/public/iptv/stream")({
           const cr = upstream.headers.get("content-range");
           if (cr) resHeaders["Content-Range"] = cr;
 
-          // Stream the body directly — zero-copy, no buffering in Node memory.
-          return new Response(upstream.body, {
+          // Stream the body directly through Node.js / Nitro stream handler.
+          const bodyStream = upstream.body
+            ? (Readable.fromWeb as any)(upstream.body)
+            : upstream.body;
+
+          return new Response(bodyStream as any, {
             status: upstream.status === 206 ? 206 : 200,
             headers: resHeaders,
           });
