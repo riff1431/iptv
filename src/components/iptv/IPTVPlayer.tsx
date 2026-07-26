@@ -15,6 +15,7 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Slider } from "@/components/ui/slider";
+import { getIptvPlaybackErrorMessage } from "@/lib/iptv-playback-error";
 import { cn } from "@/lib/utils";
 
 type Props = {
@@ -334,28 +335,7 @@ export function IPTVPlayer({ url, poster }: Props) {
           return;
         }
 
-        // Determine user-facing error message from hls.js error details.
-        let msg: string;
-        if (
-          data.details === "manifestLoadError" ||
-          data.details === "manifestLoadTimeOut" ||
-          data.details === "manifestParsingError"
-        ) {
-          msg =
-            "Cannot load stream playlist — the channel may be offline or geo-blocked. Try again or pick another channel.";
-        } else if (data.details === "fragLoadError" || data.details === "fragLoadTimeOut") {
-          // Specific message for segment 403/timeout — the most common Xtream failure mode.
-          msg =
-            "Stream segments are being blocked (403). The channel may have expired, reached its connection limit, or be temporarily unavailable. Try Retry or switch channels.";
-        } else if (data.type === Hls.ErrorTypes.NETWORK_ERROR) {
-          msg = "Network error — check your connection or try again.";
-        } else if (data.type === Hls.ErrorTypes.MEDIA_ERROR) {
-          msg = "Playback error — the stream data is unreadable.";
-        } else {
-          msg = "This stream could not be played.";
-        }
-
-        setError(msg);
+        setError(getIptvPlaybackErrorMessage(data));
         setLoading(false);
       });
     } else {

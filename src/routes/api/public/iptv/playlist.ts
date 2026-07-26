@@ -145,6 +145,17 @@ function errorResponse(status: number, message: string, requestId: string): Resp
 }
 
 /**
+ * Xtream panels commonly use the non-standard 458 status both for a usable
+ * manifest response and for an account/connection rejection. The latter has
+ * an empty body. Expose it as 429 so hls.js treats it as a terminal 4xx
+ * response instead of retrying our proxy as a 502.
+ */
+export function getEmptyXtreamManifestError(status: number, body: string): string | null {
+  if (status !== 458 || body.trim()) return null;
+  return "Xtream provider rejected the stream (HTTP 458). The account connection limit may already be in use.";
+}
+
+/**
  * Best-effort host extraction for audit logging. We never trust the raw
  * `url` param past validation, but we do want to see *what host* the caller
  * tried to reach when their request was refused. Returns null when the URL
@@ -440,7 +451,7 @@ export const Route = createFileRoute("/api/public/iptv/playlist")({
           });
           // Only SSRF-guard rejections (400s) count toward throttling. 5xx
           // upstream failures aren't the caller's fault.
-          if (ip && status >= 400 && status < 500) {
+          if (ip && status === 400) {
             void maybeThrottle(ip, message);
           }
           return errorResponse(status, message, requestId);
@@ -529,6 +540,13 @@ export const Route = createFileRoute("/api/public/iptv/playlist")({
           }
 
           const contentType = upstream.headers.get("content-type") || "";
+          let prefetchedText: string | null = null;
+
+          if (upstream.status === 458) {
+            prefetchedText = await readCapped(upstream, MAX_BYTES);
+            const rejection = getEmptyXtreamManifestError(upstream.status, prefetchedText);
+            if (rejection) return reject(429, rejection);
+          }
 
           // Xtream Codes uses the non-standard HTTP 458 status for live HLS
           // manifests. The response body is a valid M3U8 text playlist, but
@@ -558,7 +576,7 @@ export const Route = createFileRoute("/api/public/iptv/playlist")({
           if (contentLength > MAX_BYTES) {
             return reject(413, `Playlist exceeds ${Math.round(MAX_BYTES / 1024 / 1024)} MiB limit`);
           }
-          const raw = await readCapped(upstream, MAX_BYTES);
+          const raw = prefetchedText ?? (await readCapped(upstream, MAX_BYTES));
 
           // Reject empty manifest bodies — an upstream that sends a non-empty
           // status but zero bytes body is broken or returned an error page.
