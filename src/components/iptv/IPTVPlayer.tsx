@@ -159,10 +159,16 @@ export function IPTVPlayer({ url, poster }: Props) {
           {
             enableWorker: true, // Offload TS demuxing to Web Worker thread so UI never freezes
             enableStashBuffer: true, // Absorb network jitter & align AAC-HE / H.264 PTS timestamps
-            stashInitialSize: 384 * 1024, // 384KB initial stash buffer
+            stashInitialSize: 1024 * 1024, // 1MB initial stash buffer ensures complete GOP/I-frame before decode starts
             liveBufferLatencyChasing: true,
-            liveBufferLatencyMaxLatency: 3.0,
-            liveBufferLatencyMinRemain: 0.5,
+            liveBufferLatencyMaxLatency: 4.0,
+            liveBufferLatencyMinRemain: 1.0, // 1.0s safety buffer prevents micro-stutters during channel switch
+            liveSync: true, // Live clock sync to prevent frame drops
+            liveSyncMaxLatency: 3.0,
+            liveSyncTargetLatency: 1.5,
+            autoCleanupSourceBuffer: true, // Clean up old MSE memory buffer when switching channels
+            autoCleanupMaxBackwardDuration: 30,
+            autoCleanupMinBackwardDuration: 15,
             lazyLoad: false,
           },
         );
@@ -576,8 +582,9 @@ export function IPTVPlayer({ url, poster }: Props) {
     >
       <video
         ref={videoRef}
-        className="h-full w-full"
+        className="h-full w-full object-contain"
         playsInline
+        preload="auto"
         poster={poster ?? undefined}
         onClick={togglePlay}
         // Native controls are intentionally omitted; the custom bar below

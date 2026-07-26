@@ -193,6 +193,8 @@ export const Route = createFileRoute("/api/public/iptv/stream")({
             "Content-Type": contentType,
             // Live segments must never be cached by intermediate proxies or browsers.
             "Cache-Control": "no-store",
+            // Disable Nginx / Cloudflare response buffering for real-time chunk delivery.
+            "X-Accel-Buffering": "no",
             ...CORS,
           };
 
