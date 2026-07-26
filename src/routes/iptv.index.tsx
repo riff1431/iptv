@@ -11,7 +11,10 @@ export const Route = createFileRoute("/iptv/")({
   head: () => ({
     meta: [
       { title: "IPTV — Select a Live Channel" },
-      { name: "description", content: "Select a channel from your live IPTV playlist to start watching." },
+      {
+        name: "description",
+        content: "Select a channel from your live IPTV playlist to start watching.",
+      },
     ],
   }),
   component: IptvIndex,
@@ -45,11 +48,15 @@ function IptvIndex() {
               Stream 18,000+ Live Channels
             </h2>
             <p className="text-xs text-muted-foreground sm:text-sm">
-              Select any channel from the sidebar or pick from your favorites below to start instant HD stream playback.
+              Select any channel from the playlist to start instant HD stream playback.
             </p>
           </div>
           {featuredChannels.length > 0 && (
-            <Button asChild size="lg" className="shrink-0 gap-2 font-bold shadow-lg shadow-primary/20">
+            <Button
+              asChild
+              size="lg"
+              className="shrink-0 gap-2 font-bold shadow-lg shadow-primary/20"
+            >
               <Link to="/iptv/$channelId" params={{ channelId: featuredChannels[0].id }}>
                 <Play className="h-4 w-4 fill-current" />
                 Quick Watch
@@ -102,42 +109,29 @@ function IptvIndex() {
       )}
 
       {/* Featured Suggestions Grid when no recents/favorites */}
-      {recentChannels.length === 0 && favoriteChannels.length === 0 && featuredChannels.length > 0 && (
-        <section className="space-y-3">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2 text-sm font-bold text-foreground">
-              <Zap className="h-4 w-4 text-amber-400" />
-              <span>Recommended Live Channels</span>
+      {recentChannels.length === 0 &&
+        favoriteChannels.length === 0 &&
+        featuredChannels.length > 0 && (
+          <section className="space-y-3">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2 text-sm font-bold text-foreground">
+                <Zap className="h-4 w-4 text-amber-400" />
+                <span>Recommended Live Channels</span>
+              </div>
             </div>
-            <span className="text-xs text-muted-foreground">{channels.length.toLocaleString()} available</span>
-          </div>
-          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-            {featuredChannels.map((c) => (
-              <ChannelCard
-                key={c.id}
-                channel={c}
-                isFavorite={favorites.includes(c.id)}
-                onToggleFavorite={toggle}
-                variant="grid"
-              />
-            ))}
-          </div>
-        </section>
-      )}
-
-      {/* Empty State */}
-      {channels.length === 0 && !isLoading && (
-        <div className="flex flex-col items-center justify-center rounded-2xl border border-white/10 bg-card/30 p-12 text-center backdrop-blur-md">
-          <Tv className="h-12 w-12 text-muted-foreground/40" />
-          <h3 className="mt-4 text-base font-semibold text-foreground">No IPTV Playlist Configured</h3>
-          <p className="mt-1 max-w-sm text-xs text-muted-foreground">
-            Configure an IPTV provider in settings to access live channels.
-          </p>
-          <Button asChild size="sm" className="mt-4">
-            <Link to="/iptv/settings">Open Settings</Link>
-          </Button>
-        </div>
-      )}
+            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+              {featuredChannels.map((c) => (
+                <ChannelCard
+                  key={c.id}
+                  channel={c}
+                  isFavorite={favorites.includes(c.id)}
+                  onToggleFavorite={toggle}
+                  variant="grid"
+                />
+              ))}
+            </div>
+          </section>
+        )}
     </div>
   );
 }
