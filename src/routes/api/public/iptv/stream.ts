@@ -27,7 +27,25 @@ import { Readable } from "node:stream";
 
 const ALLOWED_SCHEMES = new Set(["http:", "https:"]);
 // Same port allowlist as the playlist proxy — keep in sync.
-const ALLOWED_PORTS = new Set(["", "80", "443", "8080", "8443"]);
+const BLOCKED_PORTS = new Set([
+  "22",
+  "25",
+  "53",
+  "135",
+  "139",
+  "445",
+  "3306",
+  "5432",
+  "6379",
+  "27017",
+]);
+
+function isPortAllowed(portStr: string): boolean {
+  if (!portStr) return true;
+  if (BLOCKED_PORTS.has(portStr)) return false;
+  const p = Number(portStr);
+  return Number.isInteger(p) && p >= 80 && p <= 65535;
+}
 const MAX_URL_LEN = 2048;
 // 30 s — segments should arrive well within this on any reasonable CDN.
 const TIMEOUT_MS = 30_000;
@@ -81,7 +99,7 @@ function validateUrl(raw: string): { ok: true; url: URL } | { ok: false; message
   }
   if (!ALLOWED_SCHEMES.has(u.protocol)) return { ok: false, message: "Only http(s) URLs allowed" };
   if (u.username || u.password) return { ok: false, message: "URL must not contain credentials" };
-  if (!ALLOWED_PORTS.has(u.port))
+  if (!isPortAllowed(u.port))
     return { ok: false, message: `Port ${u.port || "(none)"} is not allowed` };
   if (!u.hostname) return { ok: false, message: "URL host is required" };
   if (isBlockedHost(u.hostname)) return { ok: false, message: "URL host is not allowed" };

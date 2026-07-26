@@ -15,7 +15,25 @@ const MAX_URL_LEN = 2048;
 // serve on these; anything else (SSH, SMTP, Redis, internal admin panels,
 // EC2 metadata, etc.) is refused to shrink the SSRF surface.
 const ALLOWED_SCHEMES = new Set(["http:", "https:"]);
-const ALLOWED_PORTS = new Set(["", "80", "443", "8080", "8443"]);
+const BLOCKED_PORTS = new Set([
+  "22",
+  "25",
+  "53",
+  "135",
+  "139",
+  "445",
+  "3306",
+  "5432",
+  "6379",
+  "27017",
+]);
+
+function isPortAllowed(portStr: string): boolean {
+  if (!portStr) return true;
+  if (BLOCKED_PORTS.has(portStr)) return false;
+  const p = Number(portStr);
+  return Number.isInteger(p) && p >= 80 && p <= 65535;
+}
 
 function ipv4Blocked(a: number, b: number): boolean {
   if (a === 0) return true; // 0.0.0.0/8
@@ -87,7 +105,7 @@ function validateUrl(raw: string): { ok: true; url: URL } | { ok: false; message
   if (u.username || u.password) {
     return { ok: false, message: "URL must not contain credentials" };
   }
-  if (!ALLOWED_PORTS.has(u.port)) {
+  if (!isPortAllowed(u.port)) {
     return { ok: false, message: `Port ${u.port || "(none)"} is not allowed` };
   }
   if (!u.hostname) {
