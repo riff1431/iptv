@@ -143,6 +143,9 @@ export const updateIptvProviderAdmin = createServerFn({ method: "POST" })
       console.error("[audit] iptv provider update:", e);
     }
 
+    const { invalidateIptvSettingsCache } = await import("@/lib/iptv-settings-cache.server");
+    invalidateIptvSettingsCache();
+
     return {
       provider_type: (row.iptv_provider_type as IptvProviderType) ?? "m3u",
       m3u_url: row.iptv_m3u_url ?? "",

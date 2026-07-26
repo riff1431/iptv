@@ -1,7 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { IptvRelayUpstreamError, getSharedGlobalPlaylist } from "@/lib/global-iptv-relay.server";
 import { xtreamUpstreamUrl } from "@/lib/iptv-client.server";
-import { decryptSecret } from "@/lib/iptv-crypto.server";
+import { getCachedGlobalIptvSettings } from "@/lib/iptv-settings-cache.server";
 import { verifyRelayAccess } from "@/lib/iptv-relay-token.server";
 
 function scopeFor(channelId: string): string {
@@ -32,30 +32,16 @@ export async function handleGlobalRelayPlaylist(
     return errorResponse(403, "Relay access token is missing, invalid, or expired");
   }
 
-  const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
-  const { data: row, error } = await supabaseAdmin
-    .from("app_settings")
-    .select(
-      "iptv_provider_type, iptv_xtream_server_url, iptv_xtream_username, iptv_xtream_password_encrypted",
-    )
-    .eq("id", true)
-    .maybeSingle();
-
-  if (error) return errorResponse(500, "Could not load IPTV provider settings");
-  if (!row || row.iptv_provider_type !== "xtream" || !row.iptv_xtream_server_url) {
-    return errorResponse(409, "Global Xtream provider is not configured");
-  }
-
-  const password = decryptSecret(row.iptv_xtream_password_encrypted);
-  if (!row.iptv_xtream_username || !password) {
-    return errorResponse(409, "Global Xtream credentials are incomplete");
+  const settings = await getCachedGlobalIptvSettings();
+  if (!settings) {
+    return errorResponse(409, "Global Xtream provider is not configured or incomplete");
   }
 
   const upstreamUrl = xtreamUpstreamUrl(
     {
-      server_url: row.iptv_xtream_server_url,
-      username: row.iptv_xtream_username,
-      password,
+      server_url: settings.server_url,
+      username: settings.username,
+      password: settings.password,
       connection_type: "xtream",
     },
     channelId,
