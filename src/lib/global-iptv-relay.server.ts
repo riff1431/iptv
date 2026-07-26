@@ -162,6 +162,41 @@ function pruneResourceCache(now: number): void {
   }
 }
 
+async function fetchWithRedirects(
+  initialUrl: string,
+  headers: Record<string, string>,
+  signal: AbortSignal,
+  maxHops = 5,
+): Promise<{ response: Response; finalUrl: string }> {
+  let curr = new URL(initialUrl);
+  const currentHeaders = { ...headers };
+  for (let i = 0; i < maxHops; i++) {
+    delete currentHeaders["Host"];
+    delete currentHeaders["host"];
+    delete currentHeaders["Host".toLowerCase()];
+    const res = await fetch(curr.toString(), {
+      method: "GET",
+      redirect: "manual",
+      signal,
+      headers: currentHeaders,
+    });
+    if (res.status >= 300 && res.status < 400) {
+      const loc = res.headers.get("location");
+      if (!loc) return { response: res, finalUrl: curr.toString() };
+      let nextUrl: URL;
+      try {
+        nextUrl = new URL(loc, curr);
+      } catch {
+        return { response: res, finalUrl: curr.toString() };
+      }
+      curr = nextUrl;
+      continue;
+    }
+    return { response: res, finalUrl: curr.toString() };
+  }
+  throw new Error("Too many redirects");
+}
+
 export async function getSharedGlobalPlaylist(
   scope: string,
   upstreamUrl: string,
@@ -179,18 +214,17 @@ export async function getSharedGlobalPlaylist(
   const pending = (async (): Promise<PlaylistEntry> => {
     const timeout = createTimeout();
     try {
-      const response = await fetch(upstreamUrl, {
-        redirect: "follow",
-        headers: UPSTREAM_HEADERS,
-        signal: timeout.signal,
-      });
+      const { response, finalUrl } = await fetchWithRedirects(
+        upstreamUrl,
+        UPSTREAM_HEADERS,
+        timeout.signal,
+      );
       const bytes = await readResponseCapped(response, MAX_PLAYLIST_BYTES, "Upstream playlist");
       assertUsefulUpstream(response.status, bytes.byteLength);
       const raw = new TextDecoder().decode(bytes);
       if (!raw.trim().startsWith("#EXTM3U")) {
         throw new IptvRelayUpstreamError(502, "Upstream did not return an HLS playlist");
       }
-      const finalUrl = response.url || upstreamUrl;
       const entry = {
         fetchedAt: Date.now(),
         body: rewriteRelayPlaylist(raw, scope, finalUrl, resourceProxyPath),
@@ -236,18 +270,18 @@ export async function getSharedGlobalResource(
   const pending = (async (): Promise<RelayResource> => {
     const timeout = createTimeout();
     try {
-      const response = await fetch(upstreamUrl, {
-        redirect: "follow",
-        headers: UPSTREAM_HEADERS,
-        signal: timeout.signal,
-      });
+      const { response, finalUrl } = await fetchWithRedirects(
+        upstreamUrl,
+        UPSTREAM_HEADERS,
+        timeout.signal,
+      );
       const bytes = await readResponseCapped(response, MAX_RESOURCE_BYTES, "Upstream resource");
       assertUsefulUpstream(response.status, bytes.byteLength);
       const entry: RelayResource = {
         fetchedAt: Date.now(),
         bytes,
         contentType: response.headers.get("content-type") || "application/octet-stream",
-        finalUrl: response.url || upstreamUrl,
+        finalUrl,
       };
       if (bytes.byteLength <= MAX_CACHEABLE_RESOURCE_BYTES) {
         resourceCache.set(key, entry);
