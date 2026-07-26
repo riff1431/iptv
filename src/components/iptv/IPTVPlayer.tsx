@@ -85,9 +85,17 @@ export function IPTVPlayer({ url, poster }: Props) {
     };
     const onPlaying = () => clearLoading();
     const onCanPlay = () => clearLoading();
+    let lastTime = 0;
+    let lastAdvanceTime = Date.now();
+    let stallCheckTimer: number | null = null;
+
     const onTimeUpdate = () => {
-      // As soon as video time advances, frames are rendering — clear buffering overlay
       clearLoading();
+      const now = Date.now();
+      if (video.currentTime > lastTime + 0.1) {
+        lastTime = video.currentTime;
+        lastAdvanceTime = now;
+      }
     };
 
     let waitingTimer: number | null = null;
@@ -117,6 +125,32 @@ export function IPTVPlayer({ url, poster }: Props) {
     video.addEventListener("timeupdate", onTimeUpdate);
     video.addEventListener("waiting", onWaiting);
     video.addEventListener("error", onSrcError);
+
+    // Watchdog: Auto-recover stream if playback freezes for > 4 seconds while playing
+    stallCheckTimer = window.setInterval(() => {
+      if (
+        videoRef.current &&
+        !videoRef.current.paused &&
+        !videoRef.current.ended &&
+        Date.now() - lastAdvanceTime > 4000
+      ) {
+        lastAdvanceTime = Date.now();
+        if (mpegtsPlayer) {
+          try {
+            mpegtsPlayer.unload();
+            mpegtsPlayer.load();
+            const res = mpegtsPlayer.play();
+            if (res && typeof (res as any).catch === "function") {
+              (res as any).catch(() => {});
+            }
+          } catch {
+            /* ignore */
+          }
+        } else if (hls) {
+          hls.startLoad();
+        }
+      }
+    }, 2000);
 
     const PROXY_PLAYLIST_PATH = "/api/public/iptv/playlist";
     const PROXY_STREAM_PATH = "/api/public/iptv/stream";
@@ -160,12 +194,11 @@ export function IPTVPlayer({ url, poster }: Props) {
             enableWorker: true, // Offload TS demuxing to Web Worker thread so UI never freezes
             enableStashBuffer: true, // Absorb network jitter & align AAC-HE / H.264 PTS timestamps
             stashInitialSize: 1024 * 1024, // 1MB initial stash buffer ensures complete GOP/I-frame before decode starts
-            liveBufferLatencyChasing: true,
-            liveBufferLatencyMaxLatency: 4.0,
-            liveBufferLatencyMinRemain: 1.0, // 1.0s safety buffer prevents micro-stutters during channel switch
-            liveSync: true, // Live clock sync to prevent frame drops
-            liveSyncMaxLatency: 3.0,
-            liveSyncTargetLatency: 1.5,
+            liveBufferLatencyChasing: false, // DISABLE hard seeking freezes!
+            liveSync: true, // Enable smooth playback rate adjustments (1.05x - 1.08x)
+            liveSyncMaxLatency: 2.5, // Start smooth rate speedup at 2.5s drift
+            liveSyncTargetLatency: 1.0, // Target live buffer reserve = 1.0s
+            liveSyncPlaybackRate: 1.08, // Imperceptible 8% speedup catchup (no video decode freezes)
             autoCleanupSourceBuffer: true, // Clean up old MSE memory buffer when switching channels
             autoCleanupMaxBackwardDuration: 30,
             autoCleanupMinBackwardDuration: 15,
@@ -322,6 +355,7 @@ export function IPTVPlayer({ url, poster }: Props) {
 
     return () => {
       if (waitingTimer) window.clearTimeout(waitingTimer);
+      if (stallCheckTimer) window.clearInterval(stallCheckTimer);
       video.removeEventListener("playing", onPlaying);
       video.removeEventListener("canplay", onCanPlay);
       video.removeEventListener("timeupdate", onTimeUpdate);
