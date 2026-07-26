@@ -39,3 +39,12 @@ scripts/migrate-database.mjs
 scripts/test-auth-flow.mjs
 scripts/test-endpoint.mjs
 
+# Local IPTV provider integration tests (may use private test credentials)
+tests/e2e/iptv_gate_before_hlstile.py
+tests/e2e/iptv_no_unsigned_or_upstream_segments.py
+tests/e2e/iptv_seg_failure_no_blank_overlay.py
+tests/e2e/iptv_seg_proxy_only.py
+tests/e2e/iptv_seg_query_params.py
+tests/e2e/iptv_seg_scoped_to_tvid.py
+tests/e2e/iptv_two_subs_no_crossover.py
+tests/e2e/iptv_xtream_playback.py
