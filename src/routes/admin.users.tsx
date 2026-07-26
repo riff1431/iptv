@@ -37,25 +37,21 @@ import {
   listAdminUsers,
   updateUserRole,
   adminSendPasswordReset,
+  updateUserMetadata,
   type AdminUserRow,
   type AppRole,
 } from "@/lib/admin-users.functions";
 import { useAuth } from "@/hooks/useAuth";
-import {
-  AdminEmptyRow,
-  AdminLoadingBlock,
-  AdminErrorBlock,
-} from "@/components/admin/AdminStates";
+import { AdminEmptyRow, AdminLoadingBlock, AdminErrorBlock } from "@/components/admin/AdminStates";
 
 type SortKey = "email" | "display_name" | "last_sign_in_at";
 type SortDir = "asc" | "desc";
 
 const usersSearchSchema = z.object({
   q: fallback(z.string(), "").default(""),
-  sort: fallback(
-    z.enum(["email", "display_name", "last_sign_in_at"]),
+  sort: fallback(z.enum(["email", "display_name", "last_sign_in_at"]), "last_sign_in_at").default(
     "last_sign_in_at",
-  ).default("last_sign_in_at"),
+  ),
   dir: fallback(z.enum(["asc", "desc"]), "desc").default("desc"),
 });
 
@@ -92,6 +88,7 @@ function AdminUsersPage() {
   const listFn = useSF(listAdminUsers);
   const updateFn = useSF(updateUserRole);
   const resetFn = useSF(adminSendPasswordReset);
+  const updateMetaFn = useSF(updateUserMetadata);
 
   const { q, sort, dir } = Route.useSearch();
   const navigate = useNavigate({ from: "/admin/users" });
@@ -111,7 +108,11 @@ function AdminUsersPage() {
       replace: true,
     });
 
-  const { data: users = [], isLoading, error } = useQuery({
+  const {
+    data: users = [],
+    isLoading,
+    error,
+  } = useQuery({
     queryKey: ["admin", "users"],
     queryFn: () => listFn(),
   });
@@ -132,13 +133,28 @@ function AdminUsersPage() {
     mutationFn: (vars: { userId: string; role: AppRole; action: "grant" | "revoke" }) =>
       updateFn({ data: vars }),
     onSuccess: (_d, vars) => {
-      toast.success(
-        vars.action === "grant" ? `Granted ${vars.role}` : `Revoked ${vars.role}`,
-      );
+      toast.success(vars.action === "grant" ? `Granted ${vars.role}` : `Revoked ${vars.role}`);
       qc.invalidateQueries({ queryKey: ["admin", "users"] });
     },
     onError: (err: unknown) => {
       const msg = err instanceof Error ? err.message : "Failed to update role";
+      toast.error(msg);
+    },
+  });
+
+  const updateMetaMutation = useMutation({
+    mutationFn: (vars: { userId: string; field: "is_creator" | "is_vip"; value: boolean }) =>
+      updateMetaFn({ data: vars }),
+    onSuccess: (_d, vars) => {
+      toast.success(
+        vars.value
+          ? `Granted ${vars.field === "is_creator" ? "Creator" : "VIP"} status`
+          : `Revoked ${vars.field === "is_creator" ? "Creator" : "VIP"} status`,
+      );
+      qc.invalidateQueries({ queryKey: ["admin", "users"] });
+    },
+    onError: (err: unknown) => {
+      const msg = err instanceof Error ? err.message : "Failed to update metadata";
       toast.error(msg);
     },
   });
@@ -149,9 +165,7 @@ function AdminUsersPage() {
         data: {
           email,
           redirectTo:
-            typeof window !== "undefined"
-              ? `${window.location.origin}/reset-password`
-              : undefined,
+            typeof window !== "undefined" ? `${window.location.origin}/reset-password` : undefined,
         },
       }),
     onSuccess: (_d, email) => toast.success(`Password reset email sent to ${email}`),
@@ -214,11 +228,10 @@ function AdminUsersPage() {
                       ? mutation.variables.role
                       : null
                   }
-                  resetPending={
-                    resetMutation.isPending && resetMutation.variables === u.email
-                  }
-                  onToggle={(role, action) =>
-                    mutation.mutate({ userId: u.id, role, action })
+                  resetPending={resetMutation.isPending && resetMutation.variables === u.email}
+                  onToggle={(role, action) => mutation.mutate({ userId: u.id, role, action })}
+                  onToggleMeta={(field, value) =>
+                    updateMetaMutation.mutate({ userId: u.id, field, value })
                   }
                   onReset={() => u.email && resetMutation.mutate(u.email)}
                 />
@@ -244,6 +257,7 @@ function UserRow({
   pending,
   resetPending,
   onToggle,
+  onToggleMeta,
   onReset,
 }: {
   user: AdminUserRow;
@@ -251,6 +265,7 @@ function UserRow({
   pending: AppRole | null;
   resetPending: boolean;
   onToggle: (role: AppRole, action: "grant" | "revoke") => void;
+  onToggleMeta: (field: "is_creator" | "is_vip", value: boolean) => void;
   onReset: () => void;
 }) {
   const verified = !!user.email_confirmed_at;
@@ -279,13 +294,21 @@ function UserRow({
         )}
       </TableCell>
       <TableCell className="text-sm text-muted-foreground">
-        {user.last_sign_in_at
-          ? new Date(user.last_sign_in_at).toLocaleString()
-          : "Never"}
+        {user.last_sign_in_at ? new Date(user.last_sign_in_at).toLocaleString() : "Never"}
       </TableCell>
       <TableCell>
-        <div className="flex flex-wrap gap-1">
-          {user.roles.length === 0 ? (
+        <div className="flex flex-wrap gap-1.5 items-center">
+          {user.is_creator && (
+            <Badge className="bg-pink-600 hover:bg-pink-500 border-none text-[10px] font-black tracking-wide uppercase text-white shadow-md">
+              👑 Creator
+            </Badge>
+          )}
+          {user.is_vip && (
+            <Badge className="bg-purple-600 hover:bg-purple-500 border-none text-[10px] font-black tracking-wide uppercase text-white shadow-md">
+              💎 VIP
+            </Badge>
+          )}
+          {user.roles.length === 0 && !user.is_creator && !user.is_vip ? (
             <span className="text-xs text-muted-foreground">none</span>
           ) : (
             user.roles.map((r) => roleBadge(r))
@@ -310,6 +333,35 @@ function UserRow({
               </Button>
             );
           })}
+
+          {/* Creator Toggle Button */}
+          <Button
+            size="sm"
+            variant={user.is_creator ? "arena" : "arenaOutline"}
+            onClick={() => onToggleMeta("is_creator", !user.is_creator)}
+            className={
+              user.is_creator
+                ? "bg-pink-600 hover:bg-pink-500 border-none text-white font-extrabold"
+                : "text-slate-300 font-extrabold"
+            }
+          >
+            {user.is_creator ? "Revoke Creator" : "Grant Creator"}
+          </Button>
+
+          {/* VIP Toggle Button */}
+          <Button
+            size="sm"
+            variant={user.is_vip ? "arena" : "arenaOutline"}
+            onClick={() => onToggleMeta("is_vip", !user.is_vip)}
+            className={
+              user.is_vip
+                ? "bg-purple-600 hover:bg-purple-500 border-none text-white font-extrabold"
+                : "text-slate-300 font-extrabold"
+            }
+          >
+            {user.is_vip ? "Revoke VIP" : "Grant VIP"}
+          </Button>
+
           <Button
             size="sm"
             variant="arenaOutline"
@@ -345,8 +397,6 @@ function UserRow({
   );
 }
 
-
-
 const SORT_LABELS: Record<SortKey, string> = {
   email: "Email",
   display_name: "Display name",
@@ -364,9 +414,7 @@ function SortControl({
 }) {
   return (
     <div className="flex items-center gap-1 rounded-md border border-arena-border bg-arena-panel-2/40 p-1">
-      <span className="px-2 text-xs uppercase tracking-widest text-muted-foreground">
-        Sort
-      </span>
+      <span className="px-2 text-xs uppercase tracking-widest text-muted-foreground">Sort</span>
       {(Object.keys(SORT_LABELS) as SortKey[]).map((key) => {
         const active = sort === key;
         return (

@@ -12,6 +12,8 @@ export interface AdminUserRow {
   created_at: string;
   display_name: string | null;
   roles: AppRole[];
+  is_creator?: boolean;
+  is_vip?: boolean;
 }
 
 async function assertAdmin(context: { supabase: any; userId: string }) {
@@ -66,6 +68,8 @@ export const listAdminUsers = createServerFn({ method: "GET" })
         created_at: u.created_at,
         display_name: nameMap.get(u.id) ?? null,
         roles: roleMap.get(u.id) ?? [],
+        is_creator: u.user_metadata?.is_creator === true,
+        is_vip: u.user_metadata?.is_vip === true,
       }))
       .sort((a, b) => (a.created_at < b.created_at ? 1 : -1));
   });
@@ -160,8 +164,9 @@ export const adminCreditUserWallet = createServerFn({ method: "POST" })
     const actorEmail = (context.claims?.email as string | undefined) ?? null;
 
     // Verify the target user actually exists to avoid orphan wallet rows.
-    const { data: targetUser, error: targetErr } =
-      await supabaseAdmin.auth.admin.getUserById(data.userId);
+    const { data: targetUser, error: targetErr } = await supabaseAdmin.auth.admin.getUserById(
+      data.userId,
+    );
     if (targetErr || !targetUser?.user) {
       throw new Error("Target user not found");
     }
@@ -213,10 +218,9 @@ export const adminCreditUserWallet = createServerFn({ method: "POST" })
 
     // Recompute balance via the existing SECURITY DEFINER RPC so the UI can
     // display the resulting balance without re-fetching.
-    const { data: balance, error: balErr } = await supabaseAdmin.rpc(
-      "wallet_balance_cents",
-      { _user_id: data.userId },
-    );
+    const { data: balance, error: balErr } = await supabaseAdmin.rpc("wallet_balance_cents", {
+      _user_id: data.userId,
+    });
     if (balErr) throw new Error(balErr.message);
 
     return {
@@ -227,3 +231,40 @@ export const adminCreditUserWallet = createServerFn({ method: "POST" })
     };
   });
 
+const updateMetadataInput = z.object({
+  userId: z.string().uuid(),
+  field: z.enum(["is_creator", "is_vip"]),
+  value: z.boolean(),
+});
+
+export const updateUserMetadata = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((data: unknown) => updateMetadataInput.parse(data))
+  .handler(async ({ data, context }) => {
+    await assertAdmin(context);
+    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+
+    // Fetch current user details to keep other user metadata intact
+    const { data: userObj, error: fetchErr } = await supabaseAdmin.auth.admin.getUserById(
+      data.userId,
+    );
+    if (fetchErr || !userObj?.user) {
+      throw new Error(fetchErr?.message || "User not found");
+    }
+
+    const currentMeta = userObj.user.user_metadata || {};
+    const updatedMeta = {
+      ...currentMeta,
+      [data.field]: data.value,
+    };
+
+    const { error: updateErr } = await supabaseAdmin.auth.admin.updateUserById(data.userId, {
+      user_metadata: updatedMeta,
+    });
+
+    if (updateErr) {
+      throw new Error(updateErr.message);
+    }
+
+    return { ok: true };
+  });
