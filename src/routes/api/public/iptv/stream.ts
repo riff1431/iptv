@@ -140,6 +140,39 @@ function resolveContentType(upstreamCt: string | null, segmentUrl: string): stri
 
 // ─── Route ─────────────────────────────────────────────────────────────────
 
+async function fetchWithRedirects(
+  initialUrl: URL,
+  headers: Record<string, string>,
+  signal: AbortSignal,
+  maxHops = 5,
+): Promise<Response> {
+  let curr = initialUrl;
+  for (let i = 0; i < maxHops; i++) {
+    const res = await fetch(curr.toString(), {
+      method: "GET",
+      redirect: "manual",
+      signal,
+      headers,
+    });
+    if (res.status >= 300 && res.status < 400) {
+      const loc = res.headers.get("location");
+      if (!loc) return res;
+      let nextUrl: URL;
+      try {
+        nextUrl = new URL(loc, curr);
+      } catch {
+        return res;
+      }
+      const v = validateUrl(nextUrl.toString());
+      if (!v.ok) return res;
+      curr = v.url;
+      continue;
+    }
+    return res;
+  }
+  throw new Error("Too many redirects");
+}
+
 export const Route = createFileRoute("/api/public/iptv/stream")({
   server: {
     handlers: {
@@ -168,12 +201,7 @@ export const Route = createFileRoute("/api/public/iptv/stream")({
           const rangeHeader = request.headers.get("range");
           if (rangeHeader) forwardHeaders["Range"] = rangeHeader;
 
-          const upstream = await fetch(v.url.toString(), {
-            method: "GET",
-            redirect: "follow",
-            signal: controller.signal,
-            headers: forwardHeaders,
-          });
+          const upstream = await fetchWithRedirects(v.url, forwardHeaders, controller.signal);
 
           // Surface upstream auth / not-found errors as structured JSON.
           // Note: Xtream Codes servers return HTTP status 458 for live media streams.

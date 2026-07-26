@@ -261,6 +261,39 @@ async function maybeThrottle(ip: string, latestReason: string): Promise<void> {
   }
 }
 
+async function fetchWithRedirects(
+  initialUrl: URL,
+  headers: Record<string, string>,
+  signal: AbortSignal,
+  maxHops = 5,
+): Promise<Response> {
+  let curr = initialUrl;
+  for (let i = 0; i < maxHops; i++) {
+    const res = await fetch(curr.toString(), {
+      method: "GET",
+      redirect: "manual",
+      signal,
+      headers,
+    });
+    if (res.status >= 300 && res.status < 400) {
+      const loc = res.headers.get("location");
+      if (!loc) return res;
+      let nextUrl: URL;
+      try {
+        nextUrl = new URL(loc, curr);
+      } catch {
+        return res;
+      }
+      const v = validateUrl(nextUrl.toString());
+      if (!v.ok) return res;
+      curr = v.url;
+      continue;
+    }
+    return res;
+  }
+  throw new Error("Too many redirects");
+}
+
 const PROXY_PATH = "/api/public/iptv/playlist";
 // Dedicated binary streaming endpoint for media segments (.ts chunks, .mp4
 // init segments, .aac etc.). Kept separate from PROXY_PATH so segments get
@@ -446,12 +479,7 @@ export const Route = createFileRoute("/api/public/iptv/playlist")({
           if (ifNoneMatch) upstreamHeaders["If-None-Match"] = ifNoneMatch;
           if (ifModifiedSince) upstreamHeaders["If-Modified-Since"] = ifModifiedSince;
 
-          const upstream = await fetch(v.url.toString(), {
-            method: "GET",
-            redirect: "follow",
-            signal: controller.signal,
-            headers: upstreamHeaders,
-          });
+          const upstream = await fetchWithRedirects(v.url, upstreamHeaders, controller.signal);
 
           const cacheHeaders: Record<string, string> = {
             // Live HLS manifests must never be cached — hls.js polls them on a
