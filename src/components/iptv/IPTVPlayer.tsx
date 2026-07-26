@@ -566,6 +566,11 @@ export function IPTVPlayer({ url, poster }: Props) {
 
   const VolumeIcon = muted || volume === 0 ? VolumeX : volume < 0.5 ? Volume1 : Volume2;
 
+  const safePoster =
+    poster && typeof window !== "undefined" && window.location.protocol === "https:"
+      ? poster.replace(/^http:\/\//i, "https://")
+      : (poster ?? undefined);
+
   return (
     <div
       ref={containerRef}
@@ -585,7 +590,7 @@ export function IPTVPlayer({ url, poster }: Props) {
         className="h-full w-full object-contain"
         playsInline
         preload="auto"
-        poster={poster ?? undefined}
+        poster={safePoster}
         onClick={togglePlay}
         // Native controls are intentionally omitted; the custom bar below
         // provides play/pause, volume and fullscreen with keyboard support.

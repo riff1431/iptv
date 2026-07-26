@@ -207,11 +207,21 @@ export const Route = createFileRoute("/api/public/iptv/stream")({
           if (cr) resHeaders["Content-Range"] = cr;
 
           // Stream the body directly through Node.js / Nitro stream handler.
-          const bodyStream = upstream.body
-            ? (Readable.fromWeb as any)(upstream.body)
-            : upstream.body;
+          // Safely handle undici Node Readable streams (production) vs Web ReadableStreams (dev).
+          let bodyStream: any = upstream.body;
+          if (upstream.body) {
+            if (typeof (upstream.body as any).pipe === "function") {
+              bodyStream = upstream.body;
+            } else if (typeof (Readable as any).fromWeb === "function") {
+              try {
+                bodyStream = (Readable as any).fromWeb(upstream.body);
+              } catch {
+                bodyStream = upstream.body;
+              }
+            }
+          }
 
-          return new Response(bodyStream as any, {
+          return new Response(bodyStream, {
             status: upstream.status === 206 ? 206 : 200,
             headers: resHeaders,
           });
