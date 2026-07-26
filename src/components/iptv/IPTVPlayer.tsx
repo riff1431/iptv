@@ -617,6 +617,8 @@ export function IPTVPlayer({ url, poster }: Props) {
       ? poster.replace(/^http:\/\//i, "https://")
       : (poster ?? undefined);
 
+  const isOfflineFeed = url.includes("black.ts");
+
   return (
     <div
       ref={containerRef}
@@ -631,6 +633,13 @@ export function IPTVPlayer({ url, poster }: Props) {
       onKeyDown={onKeyDown}
       tabIndex={0}
     >
+      {isOfflineFeed && (
+        <div className="pointer-events-none absolute top-4 right-4 z-10 flex items-center gap-2 rounded-full bg-amber-500/20 backdrop-blur-md border border-amber-500/30 px-3 py-1.5 text-xs text-amber-300 font-medium shadow-md">
+          <span className="h-2 w-2 rounded-full bg-amber-400 animate-pulse" />
+          Channel Offline (Provider Black Feed)
+        </div>
+      )}
+
       <video
         ref={videoRef}
         className="h-full w-full object-contain"
