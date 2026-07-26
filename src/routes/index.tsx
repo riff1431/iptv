@@ -1,6 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { lazy, Suspense, useEffect, useState, type ComponentType } from "react";
 import { AppShell } from "@/components/AppShell";
+import { useAuth } from "@/hooks/useAuth";
 import { publicLoungesQuery } from "@/lib/lounges.public.functions";
 import { publicMatchesQuery } from "@/lib/matches.public.functions";
 import { publicQuickDaresQuery } from "@/lib/quick-dares.public.functions";
@@ -11,13 +12,14 @@ import { zodValidator } from "@tanstack/zod-adapter";
 import { z } from "zod";
 import heroImg from "@/assets/pgx/hero.jpg";
 
-// Lazy load home landing page sections
+// Lazy load home landing page sections & logged-in user dashboard
 const HeroSection = lazy(() => import("@/components/home/HeroSection"));
 const LiveSportsGrid = lazy(() => import("@/components/home/LiveSportsGrid"));
 const QuickDaresCard = lazy(() => import("@/components/home/QuickDaresCard"));
 const OneOnOneCard = lazy(() => import("@/components/home/OneOnOneCard"));
 const WhyPgxCard = lazy(() => import("@/components/home/WhyPgxCard"));
 const TrustStrip = lazy(() => import("@/components/home/TrustStrip"));
+const UserDashboardHome = lazy(() => import("@/components/home/UserDashboardHome"));
 
 function ClientOnly({
   component: Component,
@@ -80,18 +82,6 @@ export const Route = createFileRoute("/")({
           href: string;
         },
       ],
-      scripts: [
-        {
-          type: "application/ld+json",
-          children: JSON.stringify({
-            "@context": "https://schema.org",
-            "@type": "WebSite",
-            name: "PGX Sports Lounge",
-            url: url,
-            description,
-          }),
-        },
-      ],
     };
   },
   pendingMs: 200,
@@ -149,6 +139,7 @@ function LobbyError({ error, reset }: { error: Error; reset: () => void }) {
 }
 
 function HomePage() {
+  const { user } = useAuth();
   useSuspenseQuery(publicLoungesQuery());
   useSuspenseQuery(publicMatchesQuery());
 
@@ -156,35 +147,48 @@ function HomePage() {
     <AppShell>
       <div className="bg-slate-950 min-h-screen text-slate-100 selection:bg-pink-500 selection:text-white">
         <div className="mx-auto w-full max-w-7xl px-4 py-6 sm:px-6 lg:px-8 space-y-6">
-          {/* Hero Banner (Headline: WATCH. INTERACT. DARE. CONNECT.) */}
-          <ClientOnly component={HeroSection} fallback={<SectionFallback minH="min-h-[450px]" />} />
+          {user ? (
+            /* LOGGED IN USER HOME VIEW (Image 2 Dashboard) */
+            <ClientOnly
+              component={UserDashboardHome}
+              fallback={<SectionFallback minH="min-h-[600px]" />}
+            />
+          ) : (
+            /* LOGGED OUT VISITOR LANDING PAGE VIEW (Image 1 Hero Landing) */
+            <>
+              <ClientOnly
+                component={HeroSection}
+                fallback={<SectionFallback minH="min-h-[450px]" />}
+              />
 
-          {/* Main Grid: LIVE IN SPORTS LOUNGE (Left) + QUICK DARES (Right) */}
-          <div className="grid gap-6 lg:grid-cols-[1.8fr_1fr]">
-            <ClientOnly
-              component={LiveSportsGrid}
-              fallback={<SectionFallback minH="min-h-[360px]" />}
-            />
-            <ClientOnly
-              component={QuickDaresCard}
-              fallback={<SectionFallback minH="min-h-[360px]" />}
-            />
-          </div>
+              <div className="grid gap-6 lg:grid-cols-[1.8fr_1fr]">
+                <ClientOnly
+                  component={LiveSportsGrid}
+                  fallback={<SectionFallback minH="min-h-[360px]" />}
+                />
+                <ClientOnly
+                  component={QuickDaresCard}
+                  fallback={<SectionFallback minH="min-h-[360px]" />}
+                />
+              </div>
 
-          {/* Row 2 Grid: LIVE 1 ON 1 VIDEO CALLS (Left) + WHY PGX? (Right) */}
-          <div className="grid gap-6 lg:grid-cols-2">
-            <ClientOnly
-              component={OneOnOneCard}
-              fallback={<SectionFallback minH="min-h-[180px]" />}
-            />
-            <ClientOnly
-              component={WhyPgxCard}
-              fallback={<SectionFallback minH="min-h-[180px]" />}
-            />
-          </div>
+              <div className="grid gap-6 lg:grid-cols-2">
+                <ClientOnly
+                  component={OneOnOneCard}
+                  fallback={<SectionFallback minH="min-h-[180px]" />}
+                />
+                <ClientOnly
+                  component={WhyPgxCard}
+                  fallback={<SectionFallback minH="min-h-[180px]" />}
+                />
+              </div>
 
-          {/* Bottom Trust & Security Strip */}
-          <ClientOnly component={TrustStrip} fallback={<SectionFallback minH="min-h-[100px]" />} />
+              <ClientOnly
+                component={TrustStrip}
+                fallback={<SectionFallback minH="min-h-[100px]" />}
+              />
+            </>
+          )}
         </div>
       </div>
     </AppShell>
