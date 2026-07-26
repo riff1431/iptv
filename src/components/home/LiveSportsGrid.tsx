@@ -22,7 +22,6 @@ export type LiveCardItem = {
   viewers: number;
   sportImg: string;
   creatorImg: string;
-  channelId: string;
 };
 
 const CREATOR_AVATARS = [creator1, creator2, creator3, creator4];
@@ -34,40 +33,36 @@ function pickAvatar(seed: string): string {
 
 const DEFAULT_ITEMS: LiveCardItem[] = [
   {
-    id: "nba-playoffs",
+    id: "2674059e-a58f-4e27-a86d-0cc14bf4b711",
     title: "NBA Playoffs",
     creatorName: "LunaLove",
     viewers: 1248,
     sportImg: sportNba,
     creatorImg: creator1,
-    channelId: "1537041",
   },
   {
-    id: "champions-league",
+    id: "83acf813-e0db-46ba-aa15-3b9fb8ccd2a8",
     title: "Champions League",
     creatorName: "BellaBanks",
     viewers: 982,
     sportImg: sportSoccer,
     creatorImg: creator2,
-    channelId: "1537043",
   },
   {
-    id: "nhl-live",
+    id: "058dd5fe-312f-44b5-87dc-c5e954dc6355",
     title: "NHL Live",
     creatorName: "VickyVibes",
     viewers: 723,
     sportImg: sportNhl,
     creatorImg: creator3,
-    channelId: "1537049",
   },
   {
-    id: "nfl-sunday",
+    id: "2f318f85-efcf-4cf1-8a83-78f870d3c0dd",
     title: "NFL Sunday",
     creatorName: "AaliyahXO",
     viewers: 1105,
     sportImg: sportNfl,
     creatorImg: creator4,
-    channelId: "1537042",
   },
 ];
 
@@ -82,7 +77,6 @@ export default function LiveSportsGrid({ items }: Props) {
     if (items && items.length > 0) return items;
     if (dbMatches && dbMatches.length > 0) {
       return dbMatches.slice(0, 4).map((m) => {
-        const slotChannel = m.slots.find((s) => s.channelId)?.channelId;
         return {
           id: m.id,
           title: m.title || "Live Match",
@@ -90,7 +84,6 @@ export default function LiveSportsGrid({ items }: Props) {
           viewers: m.viewerCount,
           sportImg: m.thumbnailUrl || sportImage(m.sport || m.title || ""),
           creatorImg: pickAvatar(m.ownerUserId || m.id),
-          channelId: slotChannel || "1537041",
         };
       });
     }
@@ -108,7 +101,7 @@ export default function LiveSportsGrid({ items }: Props) {
           </h2>
         </div>
 
-        <Link to="/iptv">
+        <Link to="/arena">
           <Button
             variant="ghost"
             size="sm"
@@ -125,8 +118,8 @@ export default function LiveSportsGrid({ items }: Props) {
         {displayCards.map((card) => (
           <Link
             key={card.id}
-            to="/iptv/$channelId"
-            params={{ channelId: card.channelId }}
+            to="/arena/$matchId"
+            params={{ matchId: card.id }}
             className="group relative flex flex-col overflow-hidden rounded-2xl border border-slate-800/80 bg-slate-900/90 transition-all duration-300 hover:border-pink-500/70 hover:shadow-xl hover:shadow-pink-500/15"
           >
             {/* Thumbnail Image Container */}
