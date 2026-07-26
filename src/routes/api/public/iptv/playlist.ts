@@ -307,7 +307,9 @@ async function fetchWithRedirects(
         return res;
       }
       const v = validateUrl(nextUrl.toString());
-      if (!v.ok) return res;
+      if (!v.ok) {
+        throw new Error(`Redirect target validation failed: ${v.message}`);
+      }
       curr = v.url;
       continue;
     }

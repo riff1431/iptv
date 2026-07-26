@@ -152,13 +152,13 @@ export async function xtreamChannels(creds: IptvCredentials): Promise<IptvChanne
     if (c?.category_id != null) catMap.set(String(c.category_id), String(c.category_name ?? ""));
   }
   return (Array.isArray(streams) ? streams : []).map((s) => {
-    // Build the raw Xtream stream URL (.ts extension for single-connection stability).
+    // Build the raw Xtream stream URL (.m3u8 playlist format for universal HLS compatibility).
     const rawUrl = `${base}/live/${encodeURIComponent(creds.username ?? "")}/${encodeURIComponent(
       creds.password ?? "",
-    )}/${encodeURIComponent(s.stream_id)}.ts`;
+    )}/${encodeURIComponent(s.stream_id)}.m3u8`;
 
-    // Route through /api/public/iptv/stream proxy for CORS & single-connection passthrough.
-    const proxiedUrl = `/api/public/iptv/stream?url=${encodeURIComponent(rawUrl)}`;
+    // Route through /api/public/iptv/playlist proxy for CORS & HLS fragment rewriting.
+    const proxiedUrl = `/api/public/iptv/playlist?url=${encodeURIComponent(rawUrl)}`;
 
     return {
       id: String(s.stream_id),
@@ -176,8 +176,8 @@ export function xtreamStreamUrl(creds: IptvCredentials, channelId: string): stri
   const base = normaliseBase(creds.server_url);
   const rawUrl = `${base}/live/${encodeURIComponent(creds.username ?? "")}/${encodeURIComponent(
     creds.password ?? "",
-  )}/${encodeURIComponent(channelId)}.ts`;
-  return `/api/public/iptv/stream?url=${encodeURIComponent(rawUrl)}`;
+  )}/${encodeURIComponent(channelId)}.m3u8`;
+  return `/api/public/iptv/playlist?url=${encodeURIComponent(rawUrl)}`;
 }
 
 // ---------- M3U ----------
