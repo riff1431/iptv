@@ -438,8 +438,10 @@ export const Route = createFileRoute("/api/public/iptv/playlist")({
         const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
         try {
           const upstreamHeaders: Record<string, string> = {
-            "User-Agent": "Mozilla/5.0 IPTV-Proxy",
+            "User-Agent":
+              "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36",
             Accept: "*/*",
+            "Accept-Language": "en-US,en;q=0.9",
           };
           if (ifNoneMatch) upstreamHeaders["If-None-Match"] = ifNoneMatch;
           if (ifModifiedSince) upstreamHeaders["If-Modified-Since"] = ifModifiedSince;
