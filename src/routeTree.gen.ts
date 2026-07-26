@@ -65,6 +65,8 @@ import { Route as ApiPublicIptvProxyMetricsRouteImport } from './routes/api/publ
 import { Route as ApiPublicIptvStreamRouteImport } from './routes/api/public/iptv/stream'
 import { Route as ApiSportsArenaTvTvIdPlaylistRouteImport } from './routes/api/sports-arena/tv.$tvId.playlist'
 import { Route as ApiSportsArenaTvTvIdSegRouteImport } from './routes/api/sports-arena/tv.$tvId.seg'
+import { Route as ApiPublicIptvChannelChannelIdPlaylistRouteImport } from './routes/api/public/iptv/channel.$channelId.playlist'
+import { Route as ApiPublicIptvChannelChannelIdSegmentRouteImport } from './routes/api/public/iptv/channel.$channelId.segment'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
@@ -352,6 +354,18 @@ const ApiSportsArenaTvTvIdSegRoute = ApiSportsArenaTvTvIdSegRouteImport.update({
   path: '/api/sports-arena/tv/$tvId/seg',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiPublicIptvChannelChannelIdPlaylistRoute =
+  ApiPublicIptvChannelChannelIdPlaylistRouteImport.update({
+    id: '/api/public/iptv/channel/$channelId/playlist',
+    path: '/api/public/iptv/channel/$channelId/playlist',
+    getParentRoute: () => rootRouteImport,
+  } as any)
+const ApiPublicIptvChannelChannelIdSegmentRoute =
+  ApiPublicIptvChannelChannelIdSegmentRouteImport.update({
+    id: '/api/public/iptv/channel/$channelId/segment',
+    path: '/api/public/iptv/channel/$channelId/segment',
+    getParentRoute: () => rootRouteImport,
+  } as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
@@ -410,6 +424,8 @@ export interface FileRoutesByFullPath {
   '/api/public/iptv/stream': typeof ApiPublicIptvStreamRoute
   '/api/sports-arena/tv/$tvId/playlist': typeof ApiSportsArenaTvTvIdPlaylistRoute
   '/api/sports-arena/tv/$tvId/seg': typeof ApiSportsArenaTvTvIdSegRoute
+  '/api/public/iptv/channel/$channelId/playlist': typeof ApiPublicIptvChannelChannelIdPlaylistRoute
+  '/api/public/iptv/channel/$channelId/segment': typeof ApiPublicIptvChannelChannelIdSegmentRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -466,6 +482,8 @@ export interface FileRoutesByTo {
   '/api/public/iptv/stream': typeof ApiPublicIptvStreamRoute
   '/api/sports-arena/tv/$tvId/playlist': typeof ApiSportsArenaTvTvIdPlaylistRoute
   '/api/sports-arena/tv/$tvId/seg': typeof ApiSportsArenaTvTvIdSegRoute
+  '/api/public/iptv/channel/$channelId/playlist': typeof ApiPublicIptvChannelChannelIdPlaylistRoute
+  '/api/public/iptv/channel/$channelId/segment': typeof ApiPublicIptvChannelChannelIdSegmentRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -525,6 +543,8 @@ export interface FileRoutesById {
   '/api/public/iptv/stream': typeof ApiPublicIptvStreamRoute
   '/api/sports-arena/tv/$tvId/playlist': typeof ApiSportsArenaTvTvIdPlaylistRoute
   '/api/sports-arena/tv/$tvId/seg': typeof ApiSportsArenaTvTvIdSegRoute
+  '/api/public/iptv/channel/$channelId/playlist': typeof ApiPublicIptvChannelChannelIdPlaylistRoute
+  '/api/public/iptv/channel/$channelId/segment': typeof ApiPublicIptvChannelChannelIdSegmentRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -585,6 +605,8 @@ export interface FileRouteTypes {
     | '/api/public/iptv/stream'
     | '/api/sports-arena/tv/$tvId/playlist'
     | '/api/sports-arena/tv/$tvId/seg'
+    | '/api/public/iptv/channel/$channelId/playlist'
+    | '/api/public/iptv/channel/$channelId/segment'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -641,6 +663,8 @@ export interface FileRouteTypes {
     | '/api/public/iptv/stream'
     | '/api/sports-arena/tv/$tvId/playlist'
     | '/api/sports-arena/tv/$tvId/seg'
+    | '/api/public/iptv/channel/$channelId/playlist'
+    | '/api/public/iptv/channel/$channelId/segment'
   id:
     | '__root__'
     | '/'
@@ -699,6 +723,8 @@ export interface FileRouteTypes {
     | '/api/public/iptv/stream'
     | '/api/sports-arena/tv/$tvId/playlist'
     | '/api/sports-arena/tv/$tvId/seg'
+    | '/api/public/iptv/channel/$channelId/playlist'
+    | '/api/public/iptv/channel/$channelId/segment'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -734,6 +760,8 @@ export interface RootRouteChildren {
   ApiPublicIptvStreamRoute: typeof ApiPublicIptvStreamRoute
   ApiSportsArenaTvTvIdPlaylistRoute: typeof ApiSportsArenaTvTvIdPlaylistRoute
   ApiSportsArenaTvTvIdSegRoute: typeof ApiSportsArenaTvTvIdSegRoute
+  ApiPublicIptvChannelChannelIdPlaylistRoute: typeof ApiPublicIptvChannelChannelIdPlaylistRoute
+  ApiPublicIptvChannelChannelIdSegmentRoute: typeof ApiPublicIptvChannelChannelIdSegmentRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -1130,6 +1158,20 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiSportsArenaTvTvIdSegRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/public/iptv/channel/$channelId/playlist': {
+      id: '/api/public/iptv/channel/$channelId/playlist'
+      path: '/api/public/iptv/channel/$channelId/playlist'
+      fullPath: '/api/public/iptv/channel/$channelId/playlist'
+      preLoaderRoute: typeof ApiPublicIptvChannelChannelIdPlaylistRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/public/iptv/channel/$channelId/segment': {
+      id: '/api/public/iptv/channel/$channelId/segment'
+      path: '/api/public/iptv/channel/$channelId/segment'
+      fullPath: '/api/public/iptv/channel/$channelId/segment'
+      preLoaderRoute: typeof ApiPublicIptvChannelChannelIdSegmentRouteImport
+      parentRoute: typeof rootRouteImport
+    }
   }
 }
 
@@ -1239,6 +1281,10 @@ const rootRouteChildren: RootRouteChildren = {
   ApiPublicIptvStreamRoute: ApiPublicIptvStreamRoute,
   ApiSportsArenaTvTvIdPlaylistRoute: ApiSportsArenaTvTvIdPlaylistRoute,
   ApiSportsArenaTvTvIdSegRoute: ApiSportsArenaTvTvIdSegRoute,
+  ApiPublicIptvChannelChannelIdPlaylistRoute:
+    ApiPublicIptvChannelChannelIdPlaylistRoute,
+  ApiPublicIptvChannelChannelIdSegmentRoute:
+    ApiPublicIptvChannelChannelIdSegmentRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

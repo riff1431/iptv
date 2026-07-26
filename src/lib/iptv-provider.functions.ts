@@ -1,6 +1,7 @@
 import { createServerFn } from "@tanstack/react-start";
 import { createClient } from "@supabase/supabase-js";
 import { z } from "zod";
+import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 import { requireAdminServer } from "@/lib/admin-guard";
 import type { Database } from "@/integrations/supabase/types";
 import type { IptvChannel } from "@/lib/iptv-client.server";
@@ -35,10 +36,7 @@ const urlOrEmpty = z
   .string()
   .trim()
   .max(2048)
-  .refine(
-    (v) => v === "" || /^https?:\/\//i.test(v),
-    "Must be an http:// or https:// URL",
-  );
+  .refine((v) => v === "" || /^https?:\/\//i.test(v), "Must be an http:// or https:// URL");
 
 const updateSchema = z.object({
   provider_type: z.enum(["m3u", "xtream"]),
@@ -63,7 +61,7 @@ export const getIptvProviderAdmin = createServerFn({ method: "GET" })
       .maybeSingle();
     if (error) throw new Error(error.message);
     return {
-      provider_type: ((data?.iptv_provider_type as IptvProviderType) ?? "m3u"),
+      provider_type: (data?.iptv_provider_type as IptvProviderType) ?? "m3u",
       m3u_url: data?.iptv_m3u_url ?? "",
       xtream_server_url: data?.iptv_xtream_server_url ?? "",
       xtream_username: data?.iptv_xtream_username ?? "",
@@ -104,7 +102,6 @@ export const updateIptvProviderAdmin = createServerFn({ method: "POST" })
     } else if (typeof data.xtream_password === "string" && data.xtream_password.length > 0) {
       update.iptv_xtream_password_encrypted = encryptSecret(data.xtream_password);
     }
-
 
     const { data: row, error } = await supabaseAdmin
       .from("app_settings")
@@ -173,7 +170,7 @@ export const getPublicIptvProvider = createServerFn({ method: "GET" }).handler(
     if (error) throw new Error(error.message);
     const row = Array.isArray(data) ? data[0] : data;
     return {
-      provider_type: ((row?.provider_type as IptvProviderType) ?? "m3u"),
+      provider_type: (row?.provider_type as IptvProviderType) ?? "m3u",
       m3u_url: row?.m3u_url ?? "",
       xtream_server_url: row?.xtream_server_url ?? "",
       epg_url: row?.epg_url ?? "",
@@ -181,8 +178,9 @@ export const getPublicIptvProvider = createServerFn({ method: "GET" }).handler(
   },
 );
 
-export const getPublicIptvChannels = createServerFn({ method: "GET" }).handler(
-  async (): Promise<IptvChannel[]> => {
+export const getPublicIptvChannels = createServerFn({ method: "GET" })
+  .middleware([requireSupabaseAuth])
+  .handler(async (): Promise<IptvChannel[]> => {
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
     const { decryptSecret } = await import("@/lib/iptv-crypto.server");
     const { fetchChannels } = await import("@/lib/iptv-client.server");
@@ -210,9 +208,19 @@ export const getPublicIptvChannels = createServerFn({ method: "GET" }).handler(
       connection_type: type,
     };
 
-    return fetchChannels(creds);
-  },
-);
+    const channels = await fetchChannels(creds);
+    if (type !== "xtream") return channels;
+
+    const { signRelayAccess } = await import("@/lib/iptv-relay-token.server");
+    return channels.map((channel) => {
+      const scope = `global-xtream:${channel.id}`;
+      const access = signRelayAccess(scope);
+      return {
+        ...channel,
+        url: `/api/public/iptv/channel/${encodeURIComponent(channel.id)}/playlist?access=${encodeURIComponent(access)}`,
+      };
+    });
+  });
 
 export const testIptvProviderAdmin = createServerFn({ method: "POST" })
   .middleware([requireAdminServer])
@@ -278,7 +286,9 @@ export const previewIptvChannelsAdmin = createServerFn({ method: "GET" })
 
     const password = decryptSecret(row.iptv_xtream_password_encrypted);
     if (type === "xtream" && !password) {
-      throw new Error("Saved password needs to be re-saved. Please re-enter your Xtream password and click Save settings.");
+      throw new Error(
+        "Saved password needs to be re-saved. Please re-enter your Xtream password and click Save settings.",
+      );
     }
 
     const creds = {

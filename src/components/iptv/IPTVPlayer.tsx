@@ -15,7 +15,7 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Slider } from "@/components/ui/slider";
-import { getIptvPlaybackErrorMessage } from "@/lib/iptv-playback-error";
+import { getIptvPlaybackErrorMessage, isIptvHlsUrl } from "@/lib/iptv-playback-error";
 import { cn } from "@/lib/utils";
 
 type Props = {
@@ -172,7 +172,7 @@ export function IPTVPlayer({ url, poster }: Props) {
 
     // Determine target URL and player type.
     const isDirectTs = /\.ts($|\?)/i.test(url) || url.includes(PROXY_STREAM_PATH);
-    const isHls = /\.m3u8($|\?)/i.test(url) || url.includes(PROXY_PLAYLIST_PATH);
+    const isHls = isIptvHlsUrl(url);
 
     let rawPlaybackUrl = url;
     if (url.startsWith("http://") || url.startsWith("https://")) {
@@ -260,20 +260,20 @@ export function IPTVPlayer({ url, poster }: Props) {
         : targetPlaybackUrl;
       hls = new Hls({
         enableWorker: true,
-        // IPTV-tuned live settings — tight sync, generous network tolerance.
-        lowLatencyMode: true,
-        liveSyncDurationCount: 3,
-        liveMaxLatencyDurationCount: 6,
+        // IPTV-tuned live settings — generous network tolerance, relaxed polling.
+        lowLatencyMode: false, // Turn off aggressive sub-second polling to eliminate HTTP 458 provider line locks
+        liveSyncDurationCount: 4, // 4-segment buffer reserve absorbs provider network jitter
+        liveMaxLatencyDurationCount: 8,
         backBufferLength: 30,
         maxBufferLength: 30,
-        // Retry each fragment up to 4 times before declaring a fatal error,
-        // with exponential back-off capped at 2 s. This absorbs the occasional
-        // CDN hiccup without surfacing an error card to the user.
-        fragLoadingMaxRetry: 4,
-        fragLoadingRetryDelay: 500,
-        fragLoadingMaxRetryTimeout: 2_000,
+        // Retry each fragment up to 8 times before declaring a fatal error,
+        // with exponential back-off capped at 4 s. This absorbs provider CDN hiccups.
+        fragLoadingMaxRetry: 8,
+        fragLoadingRetryDelay: 1000,
+        fragLoadingMaxRetryTimeout: 4_000,
         // Give the manifest 15 s before giving up (slow provider API servers).
-        manifestLoadingMaxRetry: 2,
+        manifestLoadingMaxRetry: 6,
+        manifestLoadingRetryDelay: 1000,
         manifestLoadingTimeOut: 15_000,
       });
 
@@ -322,13 +322,14 @@ export function IPTVPlayer({ url, poster }: Props) {
         // ── Fatal errors ──────────────────────────────────────────────────
         if (!hls) return;
 
-        if (data.type === Hls.ErrorTypes.NETWORK_ERROR && recoverAttempts < 2) {
+        const isConnLimit = data.response?.code === 458 || data.response?.code === 429;
+        if (!isConnLimit && data.type === Hls.ErrorTypes.NETWORK_ERROR && recoverAttempts < 5) {
           recoverAttempts++;
           setLoadingStage("Reconnecting…");
-          hls.startLoad();
+          setTimeout(() => hls?.startLoad(), 800);
           return;
         }
-        if (data.type === Hls.ErrorTypes.MEDIA_ERROR && recoverAttempts < 2) {
+        if (!isConnLimit && data.type === Hls.ErrorTypes.MEDIA_ERROR && recoverAttempts < 5) {
           recoverAttempts++;
           setLoadingStage("Recovering…");
           hls.recoverMediaError();

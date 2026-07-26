@@ -172,11 +172,15 @@ export async function xtreamChannels(creds: IptvCredentials): Promise<IptvChanne
   });
 }
 
-export function xtreamStreamUrl(creds: IptvCredentials, channelId: string): string {
+export function xtreamUpstreamUrl(creds: IptvCredentials, channelId: string): string {
   const base = normaliseBase(creds.server_url);
-  const rawUrl = `${base}/live/${encodeURIComponent(creds.username ?? "")}/${encodeURIComponent(
+  return `${base}/live/${encodeURIComponent(creds.username ?? "")}/${encodeURIComponent(
     creds.password ?? "",
   )}/${encodeURIComponent(channelId)}.m3u8`;
+}
+
+export function xtreamStreamUrl(creds: IptvCredentials, channelId: string): string {
+  const rawUrl = xtreamUpstreamUrl(creds, channelId);
   return `/api/public/iptv/playlist?url=${encodeURIComponent(rawUrl)}`;
 }
 
