@@ -49,6 +49,12 @@ export function IPTVPlayer({ url, poster }: Props) {
   const [loadProgress, setLoadProgress] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [attempt, setAttempt] = useState(0);
+  const [fallbackToHls, setFallbackToHls] = useState(false);
+
+  // Reset failover on channel URL change
+  useEffect(() => {
+    setFallbackToHls(false);
+  }, [url]);
 
   const [playing, setPlaying] = useState(false);
   const [muted, setMuted] = useState(() => readStoredMuted() ?? false);
@@ -111,6 +117,12 @@ export function IPTVPlayer({ url, poster }: Props) {
       }, 600);
     };
     const onSrcError = () => {
+      if (!fallbackToHls) {
+        // Automatic Engine Recovery: If native or mpegts playback fails, switch to HLS engine (.m3u8)
+        setFallbackToHls(true);
+        setLoadingStage("Switching player engine…");
+        return;
+      }
       // Native <video> element error (non-HLS/MPEG-TS path or Safari native player).
       const mediaErr = video.error;
       const code = mediaErr?.code;
@@ -374,7 +386,7 @@ export function IPTVPlayer({ url, poster }: Props) {
         video.load();
       }
     };
-  }, [url, attempt]);
+  }, [url, attempt, fallbackToHls]);
 
   // Sync UI state with the underlying video element (covers native controls
   // in Picture-in-Picture, keyboard shortcuts, or programmatic changes).
