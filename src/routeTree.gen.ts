@@ -62,6 +62,7 @@ import { Route as EmbedLoungeLoungeIdRouteImport } from './routes/embed.lounge.$
 import { Route as ApiPublicHooksHealthCheckRouteImport } from './routes/api/public/hooks/health-check'
 import { Route as ApiPublicIptvPlaylistRouteImport } from './routes/api/public/iptv/playlist'
 import { Route as ApiPublicIptvProxyMetricsRouteImport } from './routes/api/public/iptv/proxy-metrics'
+import { Route as ApiPublicIptvStreamRouteImport } from './routes/api/public/iptv/stream'
 import { Route as ApiSportsArenaTvTvIdPlaylistRouteImport } from './routes/api/sports-arena/tv.$tvId.playlist'
 import { Route as ApiSportsArenaTvTvIdSegRouteImport } from './routes/api/sports-arena/tv.$tvId.seg'
 
@@ -335,6 +336,11 @@ const ApiPublicIptvProxyMetricsRoute =
     path: '/api/public/iptv/proxy-metrics',
     getParentRoute: () => rootRouteImport,
   } as any)
+const ApiPublicIptvStreamRoute = ApiPublicIptvStreamRouteImport.update({
+  id: '/api/public/iptv/stream',
+  path: '/api/public/iptv/stream',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ApiSportsArenaTvTvIdPlaylistRoute =
   ApiSportsArenaTvTvIdPlaylistRouteImport.update({
     id: '/api/sports-arena/tv/$tvId/playlist',
@@ -401,6 +407,7 @@ export interface FileRoutesByFullPath {
   '/api/public/hooks/health-check': typeof ApiPublicHooksHealthCheckRoute
   '/api/public/iptv/playlist': typeof ApiPublicIptvPlaylistRoute
   '/api/public/iptv/proxy-metrics': typeof ApiPublicIptvProxyMetricsRoute
+  '/api/public/iptv/stream': typeof ApiPublicIptvStreamRoute
   '/api/sports-arena/tv/$tvId/playlist': typeof ApiSportsArenaTvTvIdPlaylistRoute
   '/api/sports-arena/tv/$tvId/seg': typeof ApiSportsArenaTvTvIdSegRoute
 }
@@ -456,6 +463,7 @@ export interface FileRoutesByTo {
   '/api/public/hooks/health-check': typeof ApiPublicHooksHealthCheckRoute
   '/api/public/iptv/playlist': typeof ApiPublicIptvPlaylistRoute
   '/api/public/iptv/proxy-metrics': typeof ApiPublicIptvProxyMetricsRoute
+  '/api/public/iptv/stream': typeof ApiPublicIptvStreamRoute
   '/api/sports-arena/tv/$tvId/playlist': typeof ApiSportsArenaTvTvIdPlaylistRoute
   '/api/sports-arena/tv/$tvId/seg': typeof ApiSportsArenaTvTvIdSegRoute
 }
@@ -514,6 +522,7 @@ export interface FileRoutesById {
   '/api/public/hooks/health-check': typeof ApiPublicHooksHealthCheckRoute
   '/api/public/iptv/playlist': typeof ApiPublicIptvPlaylistRoute
   '/api/public/iptv/proxy-metrics': typeof ApiPublicIptvProxyMetricsRoute
+  '/api/public/iptv/stream': typeof ApiPublicIptvStreamRoute
   '/api/sports-arena/tv/$tvId/playlist': typeof ApiSportsArenaTvTvIdPlaylistRoute
   '/api/sports-arena/tv/$tvId/seg': typeof ApiSportsArenaTvTvIdSegRoute
 }
@@ -573,6 +582,7 @@ export interface FileRouteTypes {
     | '/api/public/hooks/health-check'
     | '/api/public/iptv/playlist'
     | '/api/public/iptv/proxy-metrics'
+    | '/api/public/iptv/stream'
     | '/api/sports-arena/tv/$tvId/playlist'
     | '/api/sports-arena/tv/$tvId/seg'
   fileRoutesByTo: FileRoutesByTo
@@ -628,6 +638,7 @@ export interface FileRouteTypes {
     | '/api/public/hooks/health-check'
     | '/api/public/iptv/playlist'
     | '/api/public/iptv/proxy-metrics'
+    | '/api/public/iptv/stream'
     | '/api/sports-arena/tv/$tvId/playlist'
     | '/api/sports-arena/tv/$tvId/seg'
   id:
@@ -685,6 +696,7 @@ export interface FileRouteTypes {
     | '/api/public/hooks/health-check'
     | '/api/public/iptv/playlist'
     | '/api/public/iptv/proxy-metrics'
+    | '/api/public/iptv/stream'
     | '/api/sports-arena/tv/$tvId/playlist'
     | '/api/sports-arena/tv/$tvId/seg'
   fileRoutesById: FileRoutesById
@@ -719,6 +731,7 @@ export interface RootRouteChildren {
   ApiPublicHooksHealthCheckRoute: typeof ApiPublicHooksHealthCheckRoute
   ApiPublicIptvPlaylistRoute: typeof ApiPublicIptvPlaylistRoute
   ApiPublicIptvProxyMetricsRoute: typeof ApiPublicIptvProxyMetricsRoute
+  ApiPublicIptvStreamRoute: typeof ApiPublicIptvStreamRoute
   ApiSportsArenaTvTvIdPlaylistRoute: typeof ApiSportsArenaTvTvIdPlaylistRoute
   ApiSportsArenaTvTvIdSegRoute: typeof ApiSportsArenaTvTvIdSegRoute
 }
@@ -1096,6 +1109,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiPublicIptvProxyMetricsRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/public/iptv/stream': {
+      id: '/api/public/iptv/stream'
+      path: '/api/public/iptv/stream'
+      fullPath: '/api/public/iptv/stream'
+      preLoaderRoute: typeof ApiPublicIptvStreamRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/api/sports-arena/tv/$tvId/playlist': {
       id: '/api/sports-arena/tv/$tvId/playlist'
       path: '/api/sports-arena/tv/$tvId/playlist'
@@ -1216,6 +1236,7 @@ const rootRouteChildren: RootRouteChildren = {
   ApiPublicHooksHealthCheckRoute: ApiPublicHooksHealthCheckRoute,
   ApiPublicIptvPlaylistRoute: ApiPublicIptvPlaylistRoute,
   ApiPublicIptvProxyMetricsRoute: ApiPublicIptvProxyMetricsRoute,
+  ApiPublicIptvStreamRoute: ApiPublicIptvStreamRoute,
   ApiSportsArenaTvTvIdPlaylistRoute: ApiSportsArenaTvTvIdPlaylistRoute,
   ApiSportsArenaTvTvIdSegRoute: ApiSportsArenaTvTvIdSegRoute,
 }

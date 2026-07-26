@@ -187,9 +187,7 @@ function logRejection(entry: {
   // we never want a logging failure to change the response the client sees.
   void (async () => {
     try {
-      const { supabaseAdmin } = await import(
-        "@/integrations/supabase/client.server"
-      );
+      const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
       await supabaseAdmin.from("iptv_proxy_rejections").insert({
         request_id: entry.requestId,
         status: entry.status,
@@ -221,9 +219,7 @@ const THROTTLE_BLOCK_MS = 15 * 60 * 1000; // 15 minutes
  */
 async function getActiveBlock(ip: string): Promise<Date | null> {
   try {
-    const { supabaseAdmin } = await import(
-      "@/integrations/supabase/client.server"
-    );
+    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
     const { data, error } = await supabaseAdmin
       .from("iptv_proxy_ip_blocks")
       .select("blocked_until")
@@ -243,9 +239,7 @@ async function getActiveBlock(ip: string): Promise<Date | null> {
  */
 async function maybeThrottle(ip: string, latestReason: string): Promise<void> {
   try {
-    const { supabaseAdmin } = await import(
-      "@/integrations/supabase/client.server"
-    );
+    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
     const since = new Date(Date.now() - THROTTLE_WINDOW_MS).toISOString();
     const { count, error } = await supabaseAdmin
       .from("iptv_proxy_rejections")
@@ -257,18 +251,16 @@ async function maybeThrottle(ip: string, latestReason: string): Promise<void> {
 
     const now = new Date();
     const blockedUntil = new Date(now.getTime() + THROTTLE_BLOCK_MS);
-    await supabaseAdmin
-      .from("iptv_proxy_ip_blocks")
-      .upsert(
-        {
-          ip,
-          blocked_until: blockedUntil.toISOString(),
-          reason: latestReason,
-          hits: count,
-          updated_at: now.toISOString(),
-        },
-        { onConflict: "ip" },
-      );
+    await supabaseAdmin.from("iptv_proxy_ip_blocks").upsert(
+      {
+        ip,
+        blocked_until: blockedUntil.toISOString(),
+        reason: latestReason,
+        hits: count,
+        updated_at: now.toISOString(),
+      },
+      { onConflict: "ip" },
+    );
     console.warn(
       JSON.stringify({
         event: "iptv_proxy_ip_throttled",
@@ -286,29 +278,75 @@ async function maybeThrottle(ip: string, latestReason: string): Promise<void> {
 }
 
 const PROXY_PATH = "/api/public/iptv/playlist";
+// Dedicated binary streaming endpoint for media segments (.ts chunks, .mp4
+// init segments, .aac etc.). Kept separate from PROXY_PATH so segments get
+// zero-copy streaming with no 8 MiB cap and no ETag rewriting.
+const STREAM_PATH = "/api/public/iptv/stream";
 
 /**
- * Rewrite URIs inside an HLS/M3U playlist so that every referenced sub-playlist,
- * segment, key, and init map is fetched through this same proxy. Relative URIs
- * are resolved against `base` (the upstream URL we just fetched). Non-HLS
- * bodies are returned unchanged.
+ * Classify a URI to decide which proxy path to route it through.
+ *
+ * - Sub-playlists (.m3u8) → /api/public/iptv/playlist  (text, rewriteable)
+ * - Media segments (.ts, .aac, .mp4, .m4s, .m4v, .key) →
+ *                          /api/public/iptv/stream     (binary, streaming)
+ *
+ * Using a dedicated streaming route for segments avoids two problems:
+ *   1. The 8 MiB text cap in the playlist proxy would truncate large segments.
+ *   2. Buffering the full segment in memory before returning it adds latency.
+ */
+function classifyUri(abs: string): "playlist" | "stream" {
+  // Strip query string before checking extension.
+  const path = abs.toLowerCase().split("?")[0];
+  if (path.endsWith(".m3u8") || path.endsWith(".m3u")) return "playlist";
+  // Binary media types → stream proxy.
+  if (
+    path.endsWith(".ts") ||
+    path.endsWith(".aac") ||
+    path.endsWith(".mp4") ||
+    path.endsWith(".m4s") ||
+    path.endsWith(".m4v") ||
+    path.endsWith(".key") ||
+    path.endsWith(".bin")
+  )
+    return "stream";
+  // HLS key / init segment paths that don't have a recognisable extension
+  // (e.g. /hls/{token}/{id}_{seq} with no extension) → stream proxy.
+  // A rough heuristic: if the path segment after the last slash contains no
+  // dot at all, treat it as a binary segment.
+  const lastSegment = path.split("/").pop() ?? "";
+  if (!lastSegment.includes(".")) return "stream";
+  // Conservative fallback: unknown extension goes to the playlist proxy which
+  // will sniff Content-Type and re-route accordingly.
+  return "playlist";
+}
+
+/**
+ * Rewrite URIs inside an HLS/M3U playlist so that every referenced
+ * sub-playlist, segment, encryption key, and init-map is fetched through our
+ * server-side proxies. Relative URIs are resolved against `base` (the upstream
+ * URL we just fetched). Non-HLS bodies are returned unchanged.
+ *
+ * Sub-playlists → /api/public/iptv/playlist  (SSRF-guarded, text)
+ * Media segments → /api/public/iptv/stream   (SSRF-guarded, binary stream)
  */
 function rewritePlaylist(body: string, base: URL): string {
   if (!body.startsWith("#EXTM3U")) return body;
 
-  const toProxy = (raw: string): string => {
+  const rewriteUri = (raw: string): string => {
     const trimmed = raw.trim();
     if (!trimmed) return raw;
-    // Data URIs, blob:, and already-proxied URLs pass through untouched.
+    // Data / blob URIs and already-proxied URLs pass through untouched.
     if (/^(data|blob):/i.test(trimmed)) return trimmed;
-    if (trimmed.startsWith(PROXY_PATH)) return trimmed;
+    if (trimmed.startsWith(PROXY_PATH) || trimmed.startsWith(STREAM_PATH)) return trimmed;
     let abs: string;
     try {
       abs = new URL(trimmed, base).toString();
     } catch {
-      return raw;
+      return raw; // Unparseable — leave as-is to avoid breaking the playlist.
     }
-    return `${PROXY_PATH}?url=${encodeURIComponent(abs)}`;
+    const route = classifyUri(abs);
+    const proxyBase = route === "stream" ? STREAM_PATH : PROXY_PATH;
+    return `${proxyBase}?url=${encodeURIComponent(abs)}`;
   };
 
   const lines = body.split(/\r?\n/);
@@ -316,19 +354,19 @@ function rewritePlaylist(body: string, base: URL): string {
     const line = lines[i];
     if (!line) continue;
     if (line.startsWith("#")) {
-      // Rewrite URI="..." attributes on tags such as EXT-X-KEY, EXT-X-MAP,
-      // EXT-X-MEDIA, EXT-X-SESSION-KEY, EXT-X-I-FRAME-STREAM-INF.
+      // Rewrite URI="..." attributes on HLS tags:
+      //   EXT-X-KEY, EXT-X-MAP, EXT-X-MEDIA, EXT-X-SESSION-KEY,
+      //   EXT-X-I-FRAME-STREAM-INF, EXT-X-SESSION-DATA, etc.
       if (line.includes('URI="')) {
-        lines[i] = line.replace(/URI="([^"]*)"/g, (_m, uri: string) => `URI="${toProxy(uri)}"`);
+        lines[i] = line.replace(/URI="([^"]*)"/g, (_m, uri: string) => `URI="${rewriteUri(uri)}"`);
       }
       continue;
     }
-    // Non-comment, non-empty line = a segment or variant playlist URI.
-    lines[i] = toProxy(line);
+    // Non-comment, non-empty line = a segment URI or variant playlist URI.
+    lines[i] = rewriteUri(line);
   }
   return lines.join("\n");
 }
-
 
 export const Route = createFileRoute("/api/public/iptv/playlist")({
   server: {
@@ -469,10 +507,7 @@ export const Route = createFileRoute("/api/public/iptv/playlist")({
           }
           const contentLength = Number(upstream.headers.get("content-length") || 0);
           if (contentLength > MAX_BYTES) {
-            return reject(
-              413,
-              `Playlist exceeds ${Math.round(MAX_BYTES / 1024 / 1024)} MiB limit`,
-            );
+            return reject(413, `Playlist exceeds ${Math.round(MAX_BYTES / 1024 / 1024)} MiB limit`);
           }
           const raw = await readCapped(upstream, MAX_BYTES);
           const text = rewritePlaylist(raw, v.url);
@@ -485,10 +520,7 @@ export const Route = createFileRoute("/api/public/iptv/playlist")({
             delete cacheHeaders["Last-Modified"];
           }
           if (!cacheHeaders["ETag"]) {
-            const digest = await crypto.subtle.digest(
-              "SHA-1",
-              new TextEncoder().encode(text),
-            );
+            const digest = await crypto.subtle.digest("SHA-1", new TextEncoder().encode(text));
             const hex = Array.from(new Uint8Array(digest))
               .map((b) => b.toString(16).padStart(2, "0"))
               .join("");

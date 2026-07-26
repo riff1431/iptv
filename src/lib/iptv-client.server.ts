@@ -27,7 +27,6 @@ const UPSTREAM_UAS = [
 ] as const;
 const UPSTREAM_UA = UPSTREAM_UAS[0];
 
-
 // ---------- Safe debug logging ----------
 
 /** Strip credentials from a URL so it's safe to log. */
@@ -114,8 +113,6 @@ async function fetchJson(url: string, init?: RequestInit) {
   return res.json();
 }
 
-
-
 // ---------- Xtream Codes ----------
 
 export async function xtreamAuth(creds: IptvCredentials): Promise<{
@@ -154,17 +151,30 @@ export async function xtreamChannels(creds: IptvCredentials): Promise<IptvChanne
   for (const c of Array.isArray(cats) ? cats : []) {
     if (c?.category_id != null) catMap.set(String(c.category_id), String(c.category_name ?? ""));
   }
-  return (Array.isArray(streams) ? streams : []).map((s) => ({
-    id: String(s.stream_id),
-    name: String(s.name ?? "").trim() || `Channel ${s.stream_id}`,
-    logo: s.stream_icon ? String(s.stream_icon) : null,
-    group: catMap.get(String(s.category_id)) ?? null,
-    tvgId: s.custom_sid ? String(s.custom_sid) : null,
-    tvgName: s.name ? String(s.name) : null,
-    url: `${base}/live/${encodeURIComponent(creds.username ?? "")}/${encodeURIComponent(
+  return (Array.isArray(streams) ? streams : []).map((s) => {
+    // Build the raw Xtream stream URL.
+    const rawUrl = `${base}/live/${encodeURIComponent(creds.username ?? "")}/${encodeURIComponent(
       creds.password ?? "",
-    )}/${encodeURIComponent(s.stream_id)}.m3u8`,
-  }));
+    )}/${encodeURIComponent(s.stream_id)}.m3u8`;
+
+    // Always route the manifest through our server-side playlist proxy:
+    //   1. Avoids CORS failures — browser only talks to our same-origin server.
+    //   2. Binds the HLS segment token to the server IP (not browser IP), so
+    //      our /stream proxy can fetch those segments from the same server IP.
+    //   3. Prevents mixed-content on https://pgxsportslounge.com when the
+    //      provider serves plain http://.
+    const proxiedUrl = `/api/public/iptv/playlist?url=${encodeURIComponent(rawUrl)}`;
+
+    return {
+      id: String(s.stream_id),
+      name: String(s.name ?? "").trim() || `Channel ${s.stream_id}`,
+      logo: s.stream_icon ? String(s.stream_icon) : null,
+      group: catMap.get(String(s.category_id)) ?? null,
+      tvgId: s.custom_sid ? String(s.custom_sid) : null,
+      tvgName: s.name ? String(s.name) : null,
+      url: proxiedUrl,
+    };
+  });
 }
 
 export function xtreamStreamUrl(creds: IptvCredentials, channelId: string): string {
@@ -252,18 +262,10 @@ export async function m3uChannels(creds: IptvCredentials): Promise<IptvChannel[]
   throw new Error(`Upstream ${lastStatus} ${lastStatusText}`);
 }
 
-
-
-
 // ---------- Public dispatch ----------
 
 export type TestConnectionCode =
-  | "ok"
-  | "invalid_url"
-  | "unreachable"
-  | "auth_failed"
-  | "no_channels"
-  | "upstream_error";
+  "ok" | "invalid_url" | "unreachable" | "auth_failed" | "no_channels" | "upstream_error";
 
 export interface TestConnectionResult {
   ok: boolean;
@@ -279,9 +281,7 @@ export interface TestConnectionResult {
  * exposed. Errors are categorized so the admin UI can surface a specific,
  * actionable message rather than the raw upstream text.
  */
-export async function testConnection(
-  creds: IptvCredentials,
-): Promise<TestConnectionResult> {
+export async function testConnection(creds: IptvCredentials): Promise<TestConnectionResult> {
   // 1. URL sanity check (server-side belt-and-braces even though the
   //    admin form uses Zod).
   let parsed: URL;
@@ -309,8 +309,9 @@ export async function testConnection(
     const auth = await xtreamAuth(creds);
     if (!auth.ok) {
       // Distinguish network failure from provider-rejected credentials.
-      const isNetwork =
-        /fetch|network|ENOTFOUND|ECONN|ETIMEDOUT|Upstream 5\d\d/i.test(auth.message);
+      const isNetwork = /fetch|network|ENOTFOUND|ECONN|ETIMEDOUT|Upstream 5\d\d/i.test(
+        auth.message,
+      );
       return {
         ok: false,
         code: isNetwork ? "unreachable" : "auth_failed",
@@ -374,8 +375,6 @@ export async function testConnection(
     };
   }
 }
-
-
 
 export async function fetchChannels(creds: IptvCredentials): Promise<IptvChannel[]> {
   return creds.connection_type === "xtream" ? xtreamChannels(creds) : m3uChannels(creds);

@@ -106,17 +106,47 @@ export function IPTVPlayer({ url, poster }: Props) {
     video.addEventListener("waiting", onWaiting);
     video.addEventListener("error", onSrcError);
 
+    /**
+     * Always route the stream manifest through our server-side playlist proxy.
+     *
+     * Reasons:
+     *  1. CORS — Xtream providers never send Access-Control-Allow-Origin, so a
+     *     direct browser fetch of the .m3u8 fails before hls.js can even read it.
+     *  2. Token binding — the provider binds the .ts chunk token to the IP that
+     *     fetched the manifest. If the server fetches the manifest, every chunk
+     *     token is bound to the server IP; our /stream proxy then fetches those
+     *     chunks from the same server IP, so the tokens always match.
+     *  3. Mixed-content — production (https://pgxsportslounge.com) must not make
+     *     http:// requests to the Xtream server; the proxy upgrades the hop.
+     */
     const PROXY_PATH = "/api/public/iptv/playlist";
-    const isHttpsPage = typeof window !== "undefined" && window.location.protocol === "https:";
-    const isHttpTarget = /^http:\/\//i.test(url);
-    const targetPlaybackUrl =
-      (isHttpsPage && isHttpTarget) || (isHttpTarget && !url.startsWith(PROXY_PATH))
-        ? `${PROXY_PATH}?url=${encodeURIComponent(url)}`
-        : url;
+    const isXtreamOrCrossOrigin = url.startsWith("http") && !url.startsWith(PROXY_PATH);
+    const targetPlaybackUrl = isXtreamOrCrossOrigin
+      ? `${PROXY_PATH}?url=${encodeURIComponent(url)}`
+      : url;
 
     const isHls = /\.m3u8($|\?)/i.test(url) || targetPlaybackUrl.includes(PROXY_PATH);
+
     if (isHls && Hls.isSupported()) {
-      hls = new Hls({ enableWorker: true });
+      hls = new Hls({
+        enableWorker: true,
+        // IPTV-tuned live settings — tight sync, generous network tolerance.
+        lowLatencyMode: true,
+        liveSyncDurationCount: 3,
+        liveMaxLatencyDurationCount: 6,
+        backBufferLength: 30,
+        maxBufferLength: 30,
+        // Retry each fragment up to 4 times before declaring a fatal error,
+        // with exponential back-off capped at 2 s. This absorbs the occasional
+        // CDN hiccup without surfacing an error card to the user.
+        fragLoadingMaxRetry: 4,
+        fragLoadingRetryDelay: 500,
+        fragLoadingMaxRetryTimeout: 2_000,
+        // Give the manifest 15 s before giving up (slow provider API servers).
+        manifestLoadingMaxRetry: 2,
+        manifestLoadingTimeOut: 15_000,
+      });
+
       hls.on(Hls.Events.MANIFEST_LOADING, () => {
         setLoadingStage("Loading playlist…");
         setLoadProgress(10);
@@ -139,11 +169,29 @@ export function IPTVPlayer({ url, poster }: Props) {
       hls.on(Hls.Events.FRAG_LOADED, () => {
         setLoadProgress((p) => (p !== null && p < 95 ? 95 : p));
       });
+
       hls.loadSource(targetPlaybackUrl);
       hls.attachMedia(video);
+
       hls.on(Hls.Events.ERROR, (_e, data) => {
-        if (!data.fatal || !hls) return;
-        // Try to recover once from network / media faults before surfacing.
+        // ── Non-fatal errors ──────────────────────────────────────────────
+        // hls.js handles non-fatal errors internally (retries, level switching).
+        // We only intervene to show a temporary loading indicator.
+        if (!data.fatal) {
+          if (
+            data.type === Hls.ErrorTypes.NETWORK_ERROR &&
+            (data.details === "fragLoadError" || data.details === "fragLoadTimeOut")
+          ) {
+            // Fragment fetch failed — show buffering state; hls.js will retry.
+            setLoading(true);
+            setLoadingStage("Reconnecting…");
+          }
+          return;
+        }
+
+        // ── Fatal errors ──────────────────────────────────────────────────
+        if (!hls) return;
+
         if (data.type === Hls.ErrorTypes.NETWORK_ERROR && recoverAttempts < 2) {
           recoverAttempts++;
           setLoadingStage("Reconnecting…");
@@ -156,12 +204,28 @@ export function IPTVPlayer({ url, poster }: Props) {
           hls.recoverMediaError();
           return;
         }
-        const msg =
-          data.type === Hls.ErrorTypes.NETWORK_ERROR
-            ? "Network error — check your connection or the playlist URL."
-            : data.type === Hls.ErrorTypes.MEDIA_ERROR
-              ? "Playback error — the stream is unreadable."
-              : "This stream could not be played.";
+
+        // Determine user-facing error message from hls.js error details.
+        let msg: string;
+        if (
+          data.details === "manifestLoadError" ||
+          data.details === "manifestLoadTimeOut" ||
+          data.details === "manifestParsingError"
+        ) {
+          msg =
+            "Cannot load stream playlist — the channel may be offline or geo-blocked. Try again or pick another channel.";
+        } else if (data.details === "fragLoadError" || data.details === "fragLoadTimeOut") {
+          // Specific message for segment 403/timeout — the most common Xtream failure mode.
+          msg =
+            "Stream segments are being blocked (403). The channel may have expired, reached its connection limit, or be temporarily unavailable. Try Retry or switch channels.";
+        } else if (data.type === Hls.ErrorTypes.NETWORK_ERROR) {
+          msg = "Network error — check your connection or try again.";
+        } else if (data.type === Hls.ErrorTypes.MEDIA_ERROR) {
+          msg = "Playback error — the stream data is unreadable.";
+        } else {
+          msg = "This stream could not be played.";
+        }
+
         setError(msg);
         setLoading(false);
       });
@@ -441,9 +505,7 @@ export function IPTVPlayer({ url, poster }: Props) {
           className="pointer-events-none absolute inset-0 z-[5] flex flex-col items-center justify-center gap-3 bg-black/55 text-white backdrop-blur-[2px]"
         >
           <Loader2 className="h-9 w-9 animate-spin" aria-hidden />
-          <p className="text-xs font-medium tracking-wide text-white/90">
-            {loadingStage}
-          </p>
+          <p className="text-xs font-medium tracking-wide text-white/90">{loadingStage}</p>
           {loadProgress !== null && (
             <div className="h-1 w-40 overflow-hidden rounded-full bg-white/15">
               <div
@@ -484,9 +546,7 @@ export function IPTVPlayer({ url, poster }: Props) {
       <div
         className={cn(
           "pointer-events-none absolute inset-x-0 bottom-0 flex flex-col gap-1 bg-gradient-to-t from-black/80 via-black/40 to-transparent px-3 pb-2 pt-6 text-white transition-opacity duration-200",
-          controlsVisible || !playing
-            ? "opacity-100"
-            : "opacity-0 group-hover:opacity-100",
+          controlsVisible || !playing ? "opacity-100" : "opacity-0 group-hover:opacity-100",
         )}
         onMouseMove={(e) => e.stopPropagation()}
       >
@@ -541,11 +601,7 @@ export function IPTVPlayer({ url, poster }: Props) {
               onClick={toggleFullscreen}
               aria-label={isFullscreen ? "Exit fullscreen" : "Enter fullscreen"}
             >
-              {isFullscreen ? (
-                <Minimize className="h-5 w-5" />
-              ) : (
-                <Maximize className="h-5 w-5" />
-              )}
+              {isFullscreen ? <Minimize className="h-5 w-5" /> : <Maximize className="h-5 w-5" />}
             </Button>
           </div>
         </div>
