@@ -75,15 +75,10 @@ export const getWalletOverview = createServerFn({ method: "GET" })
 
     const [balance, allRows, recent] = await Promise.all([
       supabase.rpc("wallet_balance_cents", { _user_id: userId }),
+      supabase.from("wallet_transactions").select("type, amount_cents").eq("user_id", userId),
       supabase
         .from("wallet_transactions")
-        .select("type, amount_cents")
-        .eq("user_id", userId),
-      supabase
-        .from("wallet_transactions")
-        .select(
-          "id, type, amount_cents, memo, external_ref, lounge_session_id, created_at",
-        )
+        .select("id, type, amount_cents, memo, external_ref, lounge_session_id, created_at")
         .eq("user_id", userId)
         .order("created_at", { ascending: false })
         .limit(5),
@@ -121,10 +116,9 @@ export const listWalletTransactions = createServerFn({ method: "POST" })
     const { supabase, userId } = context;
     let q = supabase
       .from("wallet_transactions")
-      .select(
-        "id, type, amount_cents, memo, external_ref, lounge_session_id, created_at",
-        { count: "exact" },
-      )
+      .select("id, type, amount_cents, memo, external_ref, lounge_session_id, created_at", {
+        count: "exact",
+      })
       .eq("user_id", userId)
       .order("created_at", { ascending: false });
 
@@ -310,9 +304,7 @@ export const getWalletAnalytics = createServerFn({ method: "POST" })
     const monthStartISO = (d: Date) =>
       new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), 1)).toISOString();
     const monthEndISO = (d: Date) =>
-      new Date(
-        Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + 1, 0, 23, 59, 59, 999),
-      ).toISOString();
+      new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + 1, 0, 23, 59, 59, 999)).toISOString();
     const weekEndISO = (weekStart: Date) => {
       const end = new Date(weekStart);
       end.setUTCDate(weekStart.getUTCDate() + 6);
@@ -414,3 +406,48 @@ export const getWalletAnalytics = createServerFn({ method: "POST" })
     return { range, bucketUnit, balanceSeries, spendBuckets };
   });
 
+export const upgradeUserVip = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .handler(async ({ context }) => {
+    const { userId } = context;
+    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+
+    // 1. Get user's current wallet balance
+    const { data: balance, error: balErr } = await supabaseAdmin.rpc("wallet_balance_cents", {
+      _user_id: userId,
+    });
+    if (balErr) throw new Error(balErr.message);
+
+    const costCents = 1999; // €19.99
+    const balanceCents = (balance as number | null) ?? 0;
+
+    if (balanceCents < costCents) {
+      throw new Error("Insufficient wallet balance. Please add credits first.");
+    }
+
+    // 2. Perform transactions inside the database securely
+    const { error: txErr } = await supabaseAdmin.from("wallet_transactions").insert({
+      user_id: userId,
+      type: "debit_match_entry",
+      amount_cents: costCents,
+      memo: "VIP Membership Upgrade (1 Year)",
+    });
+    if (txErr) throw new Error(txErr.message);
+
+    // 3. Update the auth metadata for this user
+    const { data: userObj, error: fetchErr } = await supabaseAdmin.auth.admin.getUserById(userId);
+    if (fetchErr || !userObj?.user) {
+      throw new Error(fetchErr?.message || "User session not found");
+    }
+
+    const currentMeta = userObj.user.user_metadata || {};
+    const { error: updateErr } = await supabaseAdmin.auth.admin.updateUserById(userId, {
+      user_metadata: {
+        ...currentMeta,
+        is_vip: true,
+      },
+    });
+    if (updateErr) throw new Error(updateErr.message);
+
+    return { ok: true };
+  });
