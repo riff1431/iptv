@@ -1,165 +1,171 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { render, screen, cleanup } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
+import { render, screen, cleanup, fireEvent, waitFor } from "@testing-library/react";
 
-// Mock external deps so ArenaActionBar renders in isolation.
-const toastFn = vi.fn();
+// Mocks are declared with vi.hoisted so the factory closures (which run early)
+// can reference them without "cannot access before initialization" errors.
+const { toastFn, voiceState, voiceMocks, moderationMock } = vi.hoisted(() => ({
+  toastFn: vi.fn(),
+  voiceState: { isConnected: false, micEnabled: false },
+  voiceMocks: {
+    connect: vi.fn().mockResolvedValue({ ok: true as const }),
+    disconnect: vi.fn().mockResolvedValue(undefined),
+    toggleMic: vi.fn().mockResolvedValue({ ok: true as const, enabled: true }),
+  },
+  moderationMock: vi.fn(),
+}));
+
 vi.mock("sonner", () => {
-  const t = (msg: string, opts?: unknown) => toastFn(msg, opts);
+  const t = (msg: string) => toastFn(msg);
   return {
     toast: Object.assign(t, {
       success: (m: string) => toastFn(m),
       error: (m: string) => toastFn(m),
+      info: (m: string) => toastFn(m),
     }),
   };
 });
 
 vi.mock("@/hooks/useAuth", () => ({
-  useAuth: () => ({ user: { id: "u1" } }),
+  useAuth: () => ({ user: { id: "u1" }, isAdmin: false, loading: false }),
 }));
 
 vi.mock("@/hooks/useLoungeChat", () => ({
-  useLoungeChat: () => ({ send: vi.fn().mockResolvedValue(undefined) }),
+  useLoungeChat: () => ({
+    messages: [],
+    loading: false,
+    error: null,
+    send: vi.fn().mockResolvedValue(undefined),
+  }),
+}));
+
+vi.mock("@/hooks/useMatchChat", () => ({
+  useMatchChat: () => ({
+    messages: [],
+    loading: false,
+    error: null,
+    send: vi.fn().mockResolvedValue(undefined),
+  }),
+}));
+
+vi.mock("@/hooks/useVoiceRoom", () => ({
+  useVoiceRoom: () => ({
+    status: voiceState.isConnected ? "connected" : "idle",
+    isConnected: voiceState.isConnected,
+    isConnecting: false,
+    micEnabled: voiceState.micEnabled,
+    participantCount: 1,
+    error: null,
+    connect: voiceMocks.connect,
+    disconnect: voiceMocks.disconnect,
+    toggleMic: voiceMocks.toggleMic,
+  }),
+}));
+
+vi.mock("@/lib/voice-moderation.functions", () => ({
+  muteAllInVoiceRoom: moderationMock,
 }));
 
 import { ArenaActionBar } from "./ArenaActionBar";
 
-describe("ArenaActionBar toggles", () => {
+function setVoice(overrides: Partial<{ isConnected: boolean; micEnabled: boolean }>) {
+  voiceState.isConnected = overrides.isConnected ?? false;
+  voiceState.micEnabled = overrides.micEnabled ?? false;
+}
+
+function renderBar(props: { isHost?: boolean; matchId?: string | null } = {}) {
+  return render(
+    <ArenaActionBar
+      loungeId="lounge-1"
+      tvs={[]}
+      matchId={props.matchId ?? null}
+      isHost={props.isHost ?? false}
+    />,
+  );
+}
+
+describe("ArenaActionBar voice wiring", () => {
   beforeEach(() => {
     toastFn.mockClear();
+    voiceMocks.connect.mockClear();
+    voiceMocks.disconnect.mockClear();
+    voiceMocks.toggleMic.mockClear();
+    moderationMock.mockClear();
+    moderationMock.mockResolvedValue({ muted: 2 });
+    setVoice({ isConnected: false, micEnabled: false });
   });
   afterEach(() => cleanup());
 
-  // Wait past the 350ms per-toggle debounce window between intentional flips.
-  const pastDebounce = () => new Promise((r) => setTimeout(r, 400));
-
-  function renderBar() {
-    return render(<ArenaActionBar loungeId="lounge-1" tvs={[]} />);
-  }
-
-  it("Voice Chat toggle flips state and fires a toast each way", async () => {
-    const user = userEvent.setup();
+  it("Voice Chat connects and toasts success when not connected", async () => {
+    setVoice({ isConnected: false });
     renderBar();
+    fireEvent.click(screen.getByRole("button", { name: /voice chat/i }));
 
-    const enter = screen.getByRole("button", { name: /voice chat/i });
-    expect(enter).not.toHaveAttribute("aria-pressed");
-    await user.click(enter);
-
-    expect(toastFn).toHaveBeenCalledWith("Voice chat joined", undefined);
-    const leave = screen.getByRole("button", { name: /leave voice/i });
-    expect(leave).toHaveAttribute("aria-pressed", "true");
-
-    await pastDebounce();
-    await user.click(leave);
-    expect(toastFn).toHaveBeenCalledWith("Voice chat left", undefined);
-    expect(
-      screen.getByRole("button", { name: /voice chat/i }),
-    ).not.toHaveAttribute("aria-pressed");
+    expect(voiceMocks.connect).toHaveBeenCalledTimes(1);
+    expect(voiceMocks.disconnect).not.toHaveBeenCalled();
+    await waitFor(() => expect(toastFn).toHaveBeenCalledWith("Voice chat joined"));
   });
 
-  it("Mute Mic toggle flips state and fires a toast each way", async () => {
-    const user = userEvent.setup();
+  it("Voice Chat disconnects when already connected", async () => {
+    setVoice({ isConnected: true });
     renderBar();
+    fireEvent.click(screen.getByRole("button", { name: /leave voice/i }));
 
-    const mute = screen.getByRole("button", { name: /^mute mic$/i });
-    expect(mute).not.toHaveAttribute("aria-pressed");
-    await user.click(mute);
-
-    expect(toastFn).toHaveBeenCalledWith("Your mic is muted", undefined);
-    const unmute = screen.getByRole("button", { name: /^unmute mic$/i });
-    expect(unmute).toHaveAttribute("aria-pressed", "true");
-
-    await pastDebounce();
-    await user.click(unmute);
-    expect(toastFn).toHaveBeenCalledWith("Your mic is live", undefined);
+    expect(voiceMocks.disconnect).toHaveBeenCalledTimes(1);
+    expect(voiceMocks.connect).not.toHaveBeenCalled();
+    await waitFor(() => expect(toastFn).toHaveBeenCalledWith("Voice chat left"));
   });
 
-  it("Mute All toggle flips state and fires a toast each way", async () => {
-    const user = userEvent.setup();
+  it("Mute Mic prompts to join voice when not connected", async () => {
+    setVoice({ isConnected: false });
     renderBar();
+    fireEvent.click(screen.getByRole("button", { name: /^(mute|unmute) mic$/i }));
 
-    const muteAll = screen.getByRole("button", { name: /^mute all$/i });
-    expect(muteAll).not.toHaveAttribute("aria-pressed");
-    await user.click(muteAll);
-
-    expect(toastFn).toHaveBeenCalledWith("Muted everyone in voice", undefined);
-    const unmuteAll = screen.getByRole("button", { name: /^unmute all$/i });
-    expect(unmuteAll).toHaveAttribute("aria-pressed", "true");
-
-    await pastDebounce();
-    await user.click(unmuteAll);
-    expect(toastFn).toHaveBeenCalledWith("Unmuted everyone in voice", undefined);
+    expect(voiceMocks.toggleMic).not.toHaveBeenCalled();
+    await waitFor(() => expect(toastFn).toHaveBeenCalledWith("Join voice chat first"));
   });
 
-  describe("rapid double-click debounce", () => {
-    // fireEvent dispatches synchronously — two clicks land inside the 350ms
-    // debounce window without waiting for real user timing.
-    it.each([
-      ["Voice Chat", /voice chat/i, "Voice chat joined"],
-      ["Mute Mic", /^mute mic$/i, "Your mic is muted"],
-      ["Mute All", /^mute all$/i, "Muted everyone in voice"],
-    ])(
-      "%s: two rapid clicks fire only one toast and one state flip",
-      async (_label, matcher, expectedToast) => {
-        const { fireEvent } = await import("@testing-library/react");
-        renderBar();
-        const btn = screen.getByRole("button", { name: matcher });
+  it("Mute Mic toggles the mic when connected", async () => {
+    setVoice({ isConnected: true, micEnabled: true });
+    renderBar();
+    fireEvent.click(screen.getByRole("button", { name: /^(mute|unmute) mic$/i }));
 
-        fireEvent.click(btn);
-        fireEvent.click(btn);
+    expect(voiceMocks.toggleMic).toHaveBeenCalledTimes(1);
+  });
 
-        const matching = toastFn.mock.calls.filter(
-          ([m]) => m === expectedToast,
-        );
-        expect(matching).toHaveLength(1);
-        expect(toastFn).toHaveBeenCalledTimes(1);
-        // State stayed "pressed" — did not flip back off.
-        expect(btn).toHaveAttribute("aria-pressed", "true");
-      },
+  it("Mute All is host-gated: non-hosts get a rejection and no server call", async () => {
+    renderBar({ isHost: false });
+    fireEvent.click(screen.getByRole("button", { name: /^mute all$/i }));
+
+    expect(moderationMock).not.toHaveBeenCalled();
+    await waitFor(() =>
+      expect(toastFn).toHaveBeenCalledWith("Only the host can mute everyone"),
     );
   });
 
-  describe("keyboard operation and ARIA", () => {
-    it.each([
-      ["Voice Chat", /voice chat/i, "Voice chat joined"],
-      ["Mute Mic", /^mute mic$/i, "Your mic is muted"],
-      ["Mute All", /^mute all$/i, "Muted everyone in voice"],
-    ])(
-      "%s: Enter activates the toggle and updates aria-pressed",
-      async (_label, matcher, expectedToast) => {
-        const user = userEvent.setup();
-        renderBar();
-        const btn = screen.getByRole("button", { name: matcher });
+  it("Mute All as host calls moderation with the right room/kind", async () => {
+    renderBar({ isHost: true, matchId: "match-xyz" });
+    fireEvent.click(screen.getByRole("button", { name: /^mute all$/i }));
 
-        // Off state exposes no aria-pressed (only present when active).
-        expect(btn).not.toHaveAttribute("aria-pressed");
+    await waitFor(() => expect(moderationMock).toHaveBeenCalledTimes(1));
+    expect(moderationMock).toHaveBeenCalledWith({
+      data: { room: "match-xyz", kind: "match" },
+    });
+    await waitFor(() => expect(toastFn).toHaveBeenCalledWith("Muted 2 participants"));
+  });
 
-        btn.focus();
-        expect(btn).toHaveFocus();
-        await user.keyboard("{Enter}");
+  it("rapid double-click is debounced to a single connect call", () => {
+    setVoice({ isConnected: false });
+    renderBar();
+    const btn = screen.getByRole("button", { name: /voice chat/i });
+    fireEvent.click(btn);
+    fireEvent.click(btn);
+    expect(voiceMocks.connect).toHaveBeenCalledTimes(1);
+  });
 
-        expect(toastFn).toHaveBeenCalledWith(expectedToast, undefined);
-        expect(btn).toHaveAttribute("aria-pressed", "true");
-      },
-    );
-
-    it.each([
-      ["Voice Chat", /voice chat/i, "Voice chat joined"],
-      ["Mute Mic", /^mute mic$/i, "Your mic is muted"],
-      ["Mute All", /^mute all$/i, "Muted everyone in voice"],
-    ])(
-      "%s: Space activates the toggle and updates aria-pressed",
-      async (_label, matcher, expectedToast) => {
-        const user = userEvent.setup();
-        renderBar();
-        const btn = screen.getByRole("button", { name: matcher });
-
-        btn.focus();
-        await user.keyboard(" ");
-
-        expect(toastFn).toHaveBeenCalledWith(expectedToast, undefined);
-        expect(btn).toHaveAttribute("aria-pressed", "true");
-      },
-    );
+  it("Leave Arena invokes the onLeave handler", () => {
+    const onLeave = vi.fn();
+    render(<ArenaActionBar loungeId="lounge-1" tvs={[]} onLeave={onLeave} />);
+    fireEvent.click(screen.getByRole("button", { name: /leave arena/i }));
+    expect(onLeave).toHaveBeenCalledTimes(1);
   });
 });

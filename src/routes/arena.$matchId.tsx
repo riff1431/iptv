@@ -751,6 +751,8 @@ function MatchWatchInner({ match }: { match: PublicMatch }) {
               hostUserId={match.ownerUserId}
               hostName={match.hostDisplayName ?? "Match host"}
               tvs={[]}
+              slots={match.slots}
+              isHost={!!user && (isAdmin || (!!match.ownerUserId && match.ownerUserId === user.id))}
               chatVisible={chatVisible}
               onToggleChat={() => setChatVisible((v) => !v)}
               onLeave={() => navigate({ to: "/arena" })}

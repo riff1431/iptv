@@ -13,6 +13,7 @@ import { ArenaBottomTabs } from "@/components/sports-arena/ArenaBottomTabs";
 import { ArenaChatPanel } from "@/components/sports-arena/ArenaChatPanel";
 import { publicLoungeBySlugQuery } from "@/lib/lounges.public.functions";
 import { useLoungePresence } from "@/hooks/useLoungePresence";
+import { useAuth } from "@/hooks/useAuth";
 import { getRequestOrigin } from "@/lib/origin.functions";
 
 export const Route = createFileRoute("/lounge/$loungeId")({
@@ -93,6 +94,7 @@ function LoungePage() {
   const { loungeId: slug } = Route.useParams();
   const navigate = useNavigate();
   const { data: lounge } = useSuspenseQuery(publicLoungeBySlugQuery(slug));
+  const { isAdmin } = useAuth();
   const [activeSlot, setActiveSlot] = useState<number | null>(null);
   const [chatVisible, setChatVisible] = useState(true);
 
@@ -152,6 +154,7 @@ function LoungePage() {
             <ArenaActionBar
               loungeId={lounge.id}
               tvs={lounge.tvs}
+              isHost={!!isAdmin}
               chatVisible={chatVisible}
               onToggleChat={() => setChatVisible((v) => !v)}
               onLeave={() => navigate({ to: "/" })}
