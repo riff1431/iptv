@@ -58,7 +58,7 @@ export const listOwnTopups = createServerFn({ method: "GET" })
 
 export const createTopup = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
-  .inputValidator((d: unknown) => createInput.parse(d))
+  .validator((d: unknown) => createInput.parse(d))
   .handler(async ({ data, context }): Promise<TopupRequest> => {
     const { supabase, userId } = context;
 
@@ -111,7 +111,7 @@ export const createTopup = createServerFn({ method: "POST" })
 
 export const getTopupProofUrl = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
-  .inputValidator((d: unknown) => z.object({ id: z.string().uuid() }).parse(d))
+  .validator((d: unknown) => z.object({ id: z.string().uuid() }).parse(d))
   .handler(async ({ data, context }): Promise<{ url: string | null }> => {
     const { supabase, userId } = context;
     // RLS on topup_requests already scopes to owner or admin.
@@ -132,7 +132,7 @@ export const getTopupProofUrl = createServerFn({ method: "POST" })
 
 export const cancelTopup = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
-  .inputValidator((d: unknown) => z.object({ id: z.string().uuid() }).parse(d))
+  .validator((d: unknown) => z.object({ id: z.string().uuid() }).parse(d))
   .handler(async ({ data, context }): Promise<TopupRequest> => {
     const { supabase, userId } = context;
     const { data: updated, error } = await supabase

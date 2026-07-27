@@ -44,11 +44,9 @@ function escapeIlike(v: string) {
 
 export const queryIptvRejections = createServerFn({ method: "POST" })
   .middleware([requireAdminServer])
-  .inputValidator((data: unknown) => queryInput.parse(data ?? {}))
+  .validator((data: unknown) => queryInput.parse(data ?? {}))
   .handler(async ({ data }): Promise<IptvRejectionPage> => {
-    const { supabaseAdmin } = await import(
-      "@/integrations/supabase/client.server"
-    );
+    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
 
     let q = supabaseAdmin
       .from("iptv_proxy_rejections")
@@ -58,8 +56,7 @@ export const queryIptvRejections = createServerFn({ method: "POST" })
       )
       .order("created_at", { ascending: false });
 
-    if (data.request_id)
-      q = q.ilike("request_id", `%${escapeIlike(data.request_id)}%`);
+    if (data.request_id) q = q.ilike("request_id", `%${escapeIlike(data.request_id)}%`);
     if (data.reason) q = q.eq("reason", data.reason);
     if (data.host) q = q.ilike("host", `%${escapeIlike(data.host)}%`);
     if (data.from) q = q.gte("created_at", data.from);
@@ -94,9 +91,7 @@ export const queryIptvRejections = createServerFn({ method: "POST" })
 export const getIptvRejectionFacets = createServerFn({ method: "GET" })
   .middleware([requireAdminServer])
   .handler(async (): Promise<IptvRejectionFacets> => {
-    const { supabaseAdmin } = await import(
-      "@/integrations/supabase/client.server"
-    );
+    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
     const { data, error } = await supabaseAdmin
       .from("iptv_proxy_rejections")
       .select("reason, host")

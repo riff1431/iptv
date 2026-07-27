@@ -2,7 +2,6 @@ import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 import { requireAdminServer } from "@/lib/admin-guard";
 
-
 export interface IptvIpBlockRow {
   ip: string;
   blocked_until: string;
@@ -30,11 +29,9 @@ function escapeIlike(v: string) {
 
 export const listIptvIpBlocks = createServerFn({ method: "POST" })
   .middleware([requireAdminServer])
-  .inputValidator((data: unknown) => listInput.parse(data ?? {}))
+  .validator((data: unknown) => listInput.parse(data ?? {}))
   .handler(async ({ data }): Promise<IptvIpBlockPage> => {
-    const { supabaseAdmin } = await import(
-      "@/integrations/supabase/client.server"
-    );
+    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
 
     let q = supabaseAdmin
       .from("iptv_proxy_ip_blocks")
@@ -72,15 +69,10 @@ const unblockInput = z.object({
 
 export const unblockIptvIp = createServerFn({ method: "POST" })
   .middleware([requireAdminServer])
-  .inputValidator((data: unknown) => unblockInput.parse(data))
+  .validator((data: unknown) => unblockInput.parse(data))
   .handler(async ({ data, context }): Promise<{ ok: true; ip: string }> => {
-    const { supabaseAdmin } = await import(
-      "@/integrations/supabase/client.server"
-    );
-    const { error } = await supabaseAdmin
-      .from("iptv_proxy_ip_blocks")
-      .delete()
-      .eq("ip", data.ip);
+    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+    const { error } = await supabaseAdmin.from("iptv_proxy_ip_blocks").delete().eq("ip", data.ip);
     if (error) throw new Error(error.message);
 
     const email = (context.claims?.email as string | undefined) ?? null;

@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState, useCallback, useRef, createContext, useCo
 import type { User } from "@supabase/supabase-js";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
+import { clearEphemeralSession } from "@/lib/session-persistence";
 
 
 export type AppRole = "admin" | "moderator" | "user";
@@ -155,7 +156,6 @@ export function useAuthState(): AuthState {
 
   const signOut = useCallback(async () => {
     await supabase.auth.signOut();
-    const { clearEphemeralSession } = await import("@/lib/session-persistence");
     clearEphemeralSession();
     setUser(null);
     setRoles([]);

@@ -14,9 +14,7 @@ type TvInsert = Database["public"]["Tables"]["tvs"]["Insert"];
  */
 export const adminListTvsForLounge = createServerFn({ method: "POST" })
   .middleware([requireAdminServer])
-  .inputValidator((d: unknown) =>
-    z.object({ loungeId: z.string().uuid() }).parse(d),
-  )
+  .validator((d: unknown) => z.object({ loungeId: z.string().uuid() }).parse(d))
   .handler(async ({ data }): Promise<TvRow[]> => {
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
     const { data: rows, error } = await supabaseAdmin
@@ -62,7 +60,7 @@ const upsertInput = z.object({
  */
 export const adminUpsertTv = createServerFn({ method: "POST" })
   .middleware([requireAdminServer])
-  .inputValidator((d: unknown) => upsertInput.parse(d))
+  .validator((d: unknown) => upsertInput.parse(d))
   .handler(async ({ data }): Promise<TvRow | null> => {
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
     const values = data as TvInsert;

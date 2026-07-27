@@ -18,7 +18,7 @@ describe("IPTV playback error messages", () => {
         type: "networkError",
         response: { code: 429 },
       }),
-    ).toContain("connection limit reached");
+    ).toMatch(/connection limit reached/i);
   });
 
   it("keeps the generic manifest guidance for other upstream failures", () => {

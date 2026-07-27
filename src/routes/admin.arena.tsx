@@ -66,7 +66,10 @@ import { AdminEmptyBlock, AdminLoadingBlock } from "@/components/admin/AdminStat
 import { Field, ThumbnailUploader } from "@/components/admin/ThumbnailUploader";
 import { SlotThumbs } from "@/components/admin/SlotThumbs";
 import { slotNumbers } from "@/lib/match-slot-count";
-import { IptvChannelPicker, type PickedChannel } from "@/components/IptvChannelPicker";
+import {
+  GlobalIptvChannelPicker as IptvChannelPicker,
+  type PickedChannel,
+} from "@/components/GlobalIptvChannelPicker";
 import { supabase } from "@/integrations/supabase/client";
 import type { Database } from "@/integrations/supabase/types";
 import {
@@ -139,8 +142,12 @@ function zonedInputToUtc(local: string, tz: string): Date | null {
     const parts = new Intl.DateTimeFormat("en-US", {
       timeZone: tz,
       hourCycle: "h23",
-      year: "numeric", month: "2-digit", day: "2-digit",
-      hour: "2-digit", minute: "2-digit", second: "2-digit",
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+      second: "2-digit",
     }).formatToParts(new Date(asUTC));
     const p: Record<string, string> = {};
     for (const x of parts) p[x.type] = x.value;
@@ -159,8 +166,11 @@ function utcIsoToZonedInput(iso: string, tz: string): string {
     const parts = new Intl.DateTimeFormat("en-CA", {
       timeZone: tz,
       hourCycle: "h23",
-      year: "numeric", month: "2-digit", day: "2-digit",
-      hour: "2-digit", minute: "2-digit",
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
     }).formatToParts(new Date(iso));
     const p: Record<string, string> = {};
     for (const x of parts) p[x.type] = x.value;
@@ -169,7 +179,6 @@ function utcIsoToZonedInput(iso: string, tz: string): string {
     return new Date(iso).toISOString().slice(0, 16);
   }
 }
-
 
 const WIZARD_STEPS = ["basics", "score", "media", "slots"] as const;
 type WizardStep = (typeof WIZARD_STEPS)[number];
@@ -190,7 +199,6 @@ const searchSchema = z.object({
 function isWizardStep(v: string): v is WizardStep {
   return (WIZARD_STEPS as readonly string[]).includes(v);
 }
-
 
 export const Route = createFileRoute("/admin/arena")({
   validateSearch: zodValidator(searchSchema),
@@ -245,7 +253,8 @@ function AdminArenaPage() {
     const q = search.q.trim().toLowerCase();
     let list = matches.filter((m) => {
       if (q) {
-        const hay = `${m.title ?? ""} ${m.sport ?? ""} ${m.home_label ?? ""} ${m.away_label ?? ""}`.toLowerCase();
+        const hay =
+          `${m.title ?? ""} ${m.sport ?? ""} ${m.home_label ?? ""} ${m.away_label ?? ""}`.toLowerCase();
         if (!hay.includes(q)) return false;
       }
       if (search.status !== "all" && m.status !== search.status) return false;
@@ -266,9 +275,10 @@ function AdminArenaPage() {
         list.sort((a, b) => (b.updated_at ?? "").localeCompare(a.updated_at ?? ""));
         break;
       default:
-        list.sort((a, b) =>
-          (a.sort_order ?? 0) - (b.sort_order ?? 0) ||
-          (a.created_at ?? "").localeCompare(b.created_at ?? ""),
+        list.sort(
+          (a, b) =>
+            (a.sort_order ?? 0) - (b.sort_order ?? 0) ||
+            (a.created_at ?? "").localeCompare(b.created_at ?? ""),
         );
     }
     return list;
@@ -300,11 +310,9 @@ function AdminArenaPage() {
   const setSearch = (patch: Partial<z.infer<typeof searchSchema>>) =>
     navigate({ search: (prev: z.infer<typeof searchSchema>) => ({ ...prev, ...patch }) });
 
-  const openEditor = (id: string | null) =>
-    setSearch({ edit: id ?? "new", tab: "basics" });
+  const openEditor = (id: string | null) => setSearch({ edit: id ?? "new", tab: "basics" });
   const closeEditor = () => setSearch({ edit: "", tab: "basics" });
   const setEditorTab = (t: WizardStep) => setSearch({ tab: t });
-
 
   const totalCount = matches.length;
   const activeCount = matches.filter((m) => m.is_active).length;
@@ -316,14 +324,14 @@ function AdminArenaPage() {
         <div>
           <h2 className="font-display text-xl font-bold">Arena Matches</h2>
           <p className="text-xs uppercase tracking-wider text-muted-foreground">
-            Manage matches and pin IPTV channels to their slots. Changes appear on /arena in real time.
+            Manage matches and pin IPTV channels to their slots. Changes appear on /arena in real
+            time.
           </p>
         </div>
         <Button onClick={() => openEditor(null)} className="gap-2">
           <Plus className="h-4 w-4" />
           New match
         </Button>
-
       </div>
 
       <div className="grid grid-cols-3 gap-2">
@@ -360,7 +368,9 @@ function AdminArenaPage() {
           <SelectContent>
             <SelectItem value="all">All status</SelectItem>
             {STATUS_OPTIONS.map((s) => (
-              <SelectItem key={s.value} value={s.value}>{s.label}</SelectItem>
+              <SelectItem key={s.value} value={s.value}>
+                {s.label}
+              </SelectItem>
             ))}
           </SelectContent>
         </Select>
@@ -384,7 +394,9 @@ function AdminArenaPage() {
             <SelectContent>
               <SelectItem value="all">All sports</SelectItem>
               {sportOptions.map((s) => (
-                <SelectItem key={s} value={s}>{s}</SelectItem>
+                <SelectItem key={s} value={s}>
+                  {s}
+                </SelectItem>
               ))}
             </SelectContent>
           </Select>
@@ -483,7 +495,6 @@ function AdminArenaPage() {
         }}
       />
 
-
       <AlertDialog open={!!confirmDelete} onOpenChange={(v) => !v && setConfirmDelete(null)}>
         <AlertDialogContent>
           <AlertDialogHeader>
@@ -510,21 +521,8 @@ function AdminArenaPage() {
   );
 }
 
-function StatChip({
-  label,
-  value,
-  tone,
-}: {
-  label: string;
-  value: number;
-  tone?: "ok" | "live";
-}) {
-  const toneCls =
-    tone === "live"
-      ? "text-live"
-      : tone === "ok"
-        ? "text-emerald-400"
-        : "text-white";
+function StatChip({ label, value, tone }: { label: string; value: number; tone?: "ok" | "live" }) {
+  const toneCls = tone === "live" ? "text-live" : tone === "ok" ? "text-emerald-400" : "text-white";
   return (
     <div className="arena-card rounded-lg px-3 py-2">
       <div className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
@@ -550,7 +548,6 @@ function StatusBadge({ status }: { status: MatchStatus }) {
 }
 
 // SlotThumbs is imported from "@/components/admin/SlotThumbs" (below).
-
 
 function MatchRowCard({
   match,
@@ -595,12 +592,16 @@ function MatchRowCard({
           )}
         </div>
         <div className="mt-1 text-xs text-muted-foreground">
-          {match.sport ? <span className="mr-2 uppercase tracking-wider">{match.sport}</span> : null}
+          {match.sport ? (
+            <span className="mr-2 uppercase tracking-wider">{match.sport}</span>
+          ) : null}
           {match.home_label && match.away_label ? (
             <span>
-              {match.home_label} <span className="tabular-nums font-semibold">{match.home_score}</span>
+              {match.home_label}{" "}
+              <span className="tabular-nums font-semibold">{match.home_score}</span>
               {" — "}
-              <span className="tabular-nums font-semibold">{match.away_score}</span> {match.away_label}
+              <span className="tabular-nums font-semibold">{match.away_score}</span>{" "}
+              {match.away_label}
             </span>
           ) : (
             <span>No teams set</span>
@@ -653,7 +654,9 @@ function MatchTable({
         <TableBody>
           {matches.map((m) => (
             <TableRow key={m.id}>
-              <TableCell><StatusBadge status={m.status} /></TableCell>
+              <TableCell>
+                <StatusBadge status={m.status} />
+              </TableCell>
               <TableCell>
                 <div className="font-semibold">
                   {m.title || <span className="text-muted-foreground">Untitled</span>}
@@ -774,7 +777,6 @@ const STEP_LABEL: Record<WizardStep, string> = {
   slots: "Channel slots",
 };
 
-
 const DRAFT_KEY_PREFIX = "admin.arena.editor.draft:";
 const draftKey = (id: string | null) => `${DRAFT_KEY_PREFIX}${id ?? "new"}`;
 
@@ -862,12 +864,15 @@ function MatchEditorDialog({
 
   const setTab = onTabChange;
 
-
-
   const bySlot = useMemo(() => new Map(slots.map((s) => [s.slot, s])), [slots]);
 
   const save = useMutation({
-    mutationFn: async (overrides?: { status?: MatchStatus; is_active?: boolean; start?: boolean; schedule?: boolean }) => {
+    mutationFn: async (overrides?: {
+      status?: MatchStatus;
+      is_active?: boolean;
+      start?: boolean;
+      schedule?: boolean;
+    }) => {
       const status = overrides?.status ?? form.status;
       const is_active = overrides?.is_active ?? form.is_active;
       const payload = {
@@ -879,7 +884,9 @@ function MatchEditorDialog({
         home_score: Number(form.home_score) || 0,
         away_score: Number(form.away_score) || 0,
         status,
-        starts_at: form.starts_at ? (zonedInputToUtc(form.starts_at, form.starts_at_tz)?.toISOString() ?? null) : null,
+        starts_at: form.starts_at
+          ? (zonedInputToUtc(form.starts_at, form.starts_at_tz)?.toISOString() ?? null)
+          : null,
         clock_label: form.clock_label || null,
         period_label: form.period_label || null,
         accent_home: form.accent_home || null,
@@ -890,7 +897,13 @@ function MatchEditorDialog({
         slot_count: Math.max(1, Math.min(8, Number(form.slot_count) || 4)),
       };
       const saved = await upsertFn({ data: payload });
-      return { saved, started: !!overrides?.start, scheduled: !!overrides?.schedule, status, is_active };
+      return {
+        saved,
+        started: !!overrides?.start,
+        scheduled: !!overrides?.schedule,
+        status,
+        is_active,
+      };
     },
     onSuccess: ({ saved, started, scheduled, status, is_active }) => {
       const prevId = savedId;
@@ -913,7 +926,9 @@ function MatchEditorDialog({
       } else if (scheduled) {
         const when = saved?.starts_at
           ? new Date(saved.starts_at)
-          : (form.starts_at ? zonedInputToUtc(form.starts_at, form.starts_at_tz) : null);
+          : form.starts_at
+            ? zonedInputToUtc(form.starts_at, form.starts_at_tz)
+            : null;
         const tz = form.starts_at_tz || LOCAL_TZ;
         toast.success("Match scheduled", {
           description: when
@@ -974,7 +989,6 @@ function MatchEditorDialog({
     onError: (e: Error) => toast.error("Could not reorder slot", { description: e.message }),
   });
 
-
   const stepIndex = WIZARD_STEPS.indexOf(tab);
   const isLastStep = stepIndex === WIZARD_STEPS.length - 1;
   const canGoNext = tab !== "slots";
@@ -1016,7 +1030,6 @@ function MatchEditorDialog({
               </button>
             </div>
           )}
-
         </DialogHeader>
 
         <Tabs value={tab} onValueChange={(v) => setTab(v as WizardStep)} className="w-full">
@@ -1076,9 +1089,23 @@ function MatchEditorDialog({
                   </Select>
                 </div>
                 <p className="text-xs text-muted-foreground mt-1">
-                  {form.starts_at && zonedInputToUtc(form.starts_at, form.starts_at_tz)
-                    ? <>Will go live at <strong>{formatWithTz(zonedInputToUtc(form.starts_at, form.starts_at_tz)!, form.starts_at_tz)}</strong>.</>
-                    : <>Times are interpreted in <strong>{form.starts_at_tz}</strong>. Used by <strong>Schedule start</strong>.</>}
+                  {form.starts_at && zonedInputToUtc(form.starts_at, form.starts_at_tz) ? (
+                    <>
+                      Will go live at{" "}
+                      <strong>
+                        {formatWithTz(
+                          zonedInputToUtc(form.starts_at, form.starts_at_tz)!,
+                          form.starts_at_tz,
+                        )}
+                      </strong>
+                      .
+                    </>
+                  ) : (
+                    <>
+                      Times are interpreted in <strong>{form.starts_at_tz}</strong>. Used by{" "}
+                      <strong>Schedule start</strong>.
+                    </>
+                  )}
                 </p>
               </Field>
               <Field label="Home team">
@@ -1138,7 +1165,9 @@ function MatchEditorDialog({
                   </SelectTrigger>
                   <SelectContent>
                     {STATUS_OPTIONS.map((s) => (
-                      <SelectItem key={s.value} value={s.value}>{s.label}</SelectItem>
+                      <SelectItem key={s.value} value={s.value}>
+                        {s.label}
+                      </SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
@@ -1303,7 +1332,9 @@ function MatchEditorDialog({
                             )}
                           </div>
                           {s?.channel_id && (
-                            <div className="mt-0.5 text-xs text-muted-foreground truncate">{s.channel_id}</div>
+                            <div className="mt-0.5 text-xs text-muted-foreground truncate">
+                              {s.channel_id}
+                            </div>
                           )}
                         </div>
 
@@ -1399,7 +1430,11 @@ function MatchEditorDialog({
               </>
             ) : (
               <>
-                <Button onClick={() => save.mutate(undefined)} disabled={save.isPending || !canSave} variant="secondary">
+                <Button
+                  onClick={() => save.mutate(undefined)}
+                  disabled={save.isPending || !canSave}
+                  variant="secondary"
+                >
                   {save.isPending ? (
                     <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                   ) : (
@@ -1424,7 +1459,8 @@ function MatchEditorDialog({
                   onClick={() => {
                     if (!form.starts_at) {
                       toast.error("Set a start time first", {
-                        description: "Choose a future Start time on the Basics tab to schedule this match.",
+                        description:
+                          "Choose a future Start time on the Basics tab to schedule this match.",
                       });
                       setTab("basics");
                       return;
@@ -1465,7 +1501,9 @@ function MatchEditorDialog({
             <AlertDialogHeader>
               <AlertDialogTitle>Start this match in the Arena?</AlertDialogTitle>
               <AlertDialogDescription>
-                This will save the match, mark it as <strong>live</strong> and <strong>active</strong>, and push it to every Arena viewer in real time. You can pause it later by editing the status.
+                This will save the match, mark it as <strong>live</strong> and{" "}
+                <strong>active</strong>, and push it to every Arena viewer in real time. You can
+                pause it later by editing the status.
               </AlertDialogDescription>
             </AlertDialogHeader>
             <AlertDialogFooter>

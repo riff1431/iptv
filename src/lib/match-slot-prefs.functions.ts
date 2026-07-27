@@ -3,7 +3,7 @@ import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 
 export const getMatchSlotPref = createServerFn({ method: "GET" })
   .middleware([requireSupabaseAuth])
-  .inputValidator((data: { matchId: string }) => {
+  .validator((data: { matchId: string }) => {
     if (!data?.matchId || typeof data.matchId !== "string") {
       throw new Error("matchId is required");
     }
@@ -23,7 +23,7 @@ export const getMatchSlotPref = createServerFn({ method: "GET" })
 
 export const setMatchSlotPref = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
-  .inputValidator((data: { matchId: string; slot: number | null }) => {
+  .validator((data: { matchId: string; slot: number | null }) => {
     if (!data?.matchId || typeof data.matchId !== "string") {
       throw new Error("matchId is required");
     }

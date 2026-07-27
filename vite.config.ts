@@ -11,7 +11,7 @@ import { mcpPlugin } from "@lovable.dev/mcp-js/stacks/tanstack/vite";
 // can target `node-server` while the default (Lovable-hosted) build stays on Cloudflare.
 const nitroPreset = process.env.NITRO_PRESET;
 
-export default defineConfig({
+const lovableConfig = defineConfig({
   tanstackStart: {
     // Redirect TanStack Start's bundled server entry to src/server.ts (our SSR error wrapper).
     // nitro/vite builds from this
@@ -22,3 +22,28 @@ export default defineConfig({
   },
   ...(nitroPreset ? { nitro: { preset: nitroPreset } } : {}),
 });
+
+export default async (...args: Parameters<typeof lovableConfig>) => {
+  const config = await lovableConfig(...args);
+  config.plugins = config.plugins?.filter(
+    (plugin) =>
+      !(
+        plugin &&
+        typeof plugin === "object" &&
+        "name" in plugin &&
+        plugin.name === "vite-tsconfig-paths"
+      ),
+  );
+  config.resolve = {
+    ...config.resolve,
+    tsconfigPaths: true,
+  };
+  config.build = {
+    ...config.build,
+    // The remaining large client file is the framework/router bootstrap
+    // (about 606 kB, roughly 130 kB compressed). Feature-heavy wallet,
+    // chart, PDF, IPTV, and payment code is split into separate chunks.
+    chunkSizeWarningLimit: 650,
+  };
+  return config;
+};

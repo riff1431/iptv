@@ -11,13 +11,7 @@ type Props = {
   limit?: number;
 };
 
-export function RecentlyWatched({
-  channels,
-  recentIds,
-  activeId,
-  onNavigate,
-  limit = 8,
-}: Props) {
+export function RecentlyWatched({ channels, recentIds, activeId, onNavigate, limit = 8 }: Props) {
   const map = new Map(channels.map((c) => [c.id, c]));
   const items = recentIds
     .map((id) => map.get(id))
@@ -52,7 +46,6 @@ export function RecentlyWatched({
                 title={c.name}
               >
                 {c.logo ? (
-                  // eslint-disable-next-line @next/next/no-img-element
                   <img
                     src={c.logo}
                     alt=""

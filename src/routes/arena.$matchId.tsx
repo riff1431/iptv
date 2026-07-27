@@ -37,6 +37,7 @@ import { useLiveTick, liveViewers, liveIsLive } from "@/hooks/useLiveTick";
 import { SportImage } from "@/components/SportImage";
 import { useAuth } from "@/hooks/useAuth";
 import { getMatchSlotPref, setMatchSlotPref } from "@/lib/match-slot-prefs.functions";
+import { getPublicIptvChannelPlaybacks } from "@/lib/iptv-provider.functions";
 import { resetMatchSlot } from "@/lib/match-slot-reset";
 import { useLoungePresence } from "@/hooks/useLoungePresence";
 import { ArenaHeader } from "@/components/sports-arena/ArenaHeader";
@@ -51,7 +52,19 @@ export const Route = createFileRoute("/arena/$matchId")({
       getRequestOrigin(),
     ]);
     const match = matches.find((m: PublicMatch) => m.id === params.matchId);
-    return { origin, match: match ? { id: match.id, title: match.title, sport: match.sport, thumbnailUrl: match.thumbnailUrl, homeLabel: match.homeLabel, awayLabel: match.awayLabel } : null };
+    return {
+      origin,
+      match: match
+        ? {
+            id: match.id,
+            title: match.title,
+            sport: match.sport,
+            thumbnailUrl: match.thumbnailUrl,
+            homeLabel: match.homeLabel,
+            awayLabel: match.awayLabel,
+          }
+        : null,
+    };
   },
   head: ({ loaderData, params }) => {
     const origin = loaderData?.origin ?? "";
@@ -151,13 +164,13 @@ function MatchWatchPage() {
 function MatchGridSkeleton({ slotCount }: { slotCount: number }) {
   const count = Math.max(1, Math.min(slotCount || 4, 8));
   const cols =
-    count <= 1 ? "grid-cols-1" : count <= 4 ? "grid-cols-1 sm:grid-cols-2" : "grid-cols-2 lg:grid-cols-3";
+    count <= 1
+      ? "grid-cols-1"
+      : count <= 4
+        ? "grid-cols-1 sm:grid-cols-2"
+        : "grid-cols-2 lg:grid-cols-3";
   return (
-    <div
-      className="animate-fade-in"
-      aria-busy="true"
-      aria-label="Loading match streams"
-    >
+    <div className="animate-fade-in" aria-busy="true" aria-label="Loading match streams">
       {/* Health banner placeholder — mirrors the real aggregate health row. */}
       <div className="mb-3 flex flex-col gap-2 rounded-lg border border-arena-border bg-arena-panel/60 px-3 py-2 sm:flex-row sm:items-center sm:justify-between sm:gap-3">
         <div className="flex min-w-0 items-center gap-2">
@@ -191,7 +204,10 @@ function MatchGridSkeleton({ slotCount }: { slotCount: number }) {
       {/* Tile grid placeholder — matches the live grid columns/aspect. */}
       <div className={`grid gap-3 ${cols}`}>
         {Array.from({ length: count }).map((_, i) => (
-          <div key={i} className="relative overflow-hidden rounded-2xl border border-arena-border bg-arena-panel/60">
+          <div
+            key={i}
+            className="relative overflow-hidden rounded-2xl border border-arena-border bg-arena-panel/60"
+          >
             <Skeleton className="aspect-video w-full rounded-none" />
             {/* Overlay pills to hint at tile chrome while loading. */}
             <div className="pointer-events-none absolute inset-x-2 top-2 flex items-center justify-between gap-2">
@@ -210,7 +226,6 @@ function MatchGridSkeleton({ slotCount }: { slotCount: number }) {
     </div>
   );
 }
-
 
 function playlistLabel(
   source: "override" | "global" | "demo",
@@ -259,6 +274,70 @@ function MatchWatchInner({ match }: { match: PublicMatch }) {
     refetch,
   } = useIptvPlaylist(ready ? playlistUrl : "");
   const playlistError = error instanceof Error ? error.message : error ? String(error) : null;
+  const relayChannelIds = useMemo(
+    () =>
+      providerType === "xtream"
+        ? Array.from(
+            new Set(
+              match.slots
+                .filter((slot) => slot.enabled && slot.channelId)
+                .map((slot) => slot.channelId as string),
+            ),
+          )
+        : [],
+    [match.slots, providerType],
+  );
+  const relayChannelKey = relayChannelIds.join("|");
+  const [relayUrls, setRelayUrls] = useState<Record<string, string>>({});
+  const [relayLoading, setRelayLoading] = useState(false);
+  const [relayError, setRelayError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (providerType !== "xtream" || relayChannelIds.length === 0) {
+      setRelayUrls({});
+      setRelayError(null);
+      setRelayLoading(false);
+      return;
+    }
+
+    let cancelled = false;
+    setRelayLoading(true);
+    setRelayError(null);
+    void getPublicIptvChannelPlaybacks({ data: { channelIds: relayChannelIds } })
+      .then((urls) => {
+        if (!cancelled) setRelayUrls(urls);
+      })
+      .catch((relayFailure: unknown) => {
+        if (cancelled) return;
+        setRelayUrls({});
+        setRelayError(
+          relayFailure instanceof Error
+            ? relayFailure.message
+            : "Could not prepare secure IPTV playback URLs",
+        );
+      })
+      .finally(() => {
+        if (!cancelled) setRelayLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+    // The joined key changes only when the configured slot IDs change.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [providerType, relayChannelKey]);
+
+  const playbackChannels = useMemo(
+    () =>
+      providerType === "xtream"
+        ? channels.map((channel) =>
+            relayUrls[channel.id] ? { ...channel, url: relayUrls[channel.id] } : channel,
+          )
+        : channels,
+    [channels, providerType, relayUrls],
+  );
+  const playbackLoading = isLoading || relayLoading;
+  const playbackError = playlistError || relayError;
   const [reloadKey, setReloadKey] = useState(0);
   const handleRefresh = () => {
     void refetch();
@@ -584,8 +663,8 @@ function MatchWatchInner({ match }: { match: PublicMatch }) {
                             aria-hidden="true"
                           />
                           <span className="flex-1 min-w-0">
-                            Showing the iptv-org demo playlist while a live IPTV provider
-                            isn't configured.
+                            Showing the iptv-org demo playlist while a live IPTV provider isn't
+                            configured.
                           </span>
                           {isAdmin && (
                             <Link
@@ -597,7 +676,8 @@ function MatchWatchInner({ match }: { match: PublicMatch }) {
                           )}
                         </div>
                       )}
-                        {isAdmin && (() => {
+                      {isAdmin &&
+                        (() => {
                           const layout = resolveTvTileLayout(match.slots, (n) => ({
                             slot: n,
                             channelId: null,
@@ -622,13 +702,13 @@ function MatchWatchInner({ match }: { match: PublicMatch }) {
                                   {layout.overflowCount === 1 ? "" : "s"} hidden from viewers
                                 </div>
                                 <div className="mt-0.5 text-amber-100/80">
-                                  The arena TV view is locked to {TV_TILE_LAYOUT_SIZE} tiles
-                                  (slots 1–{TV_TILE_LAYOUT_SIZE}). Dropped:{" "}
+                                  The arena TV view is locked to {TV_TILE_LAYOUT_SIZE} tiles (slots
+                                  1–{TV_TILE_LAYOUT_SIZE}). Dropped:{" "}
                                   <span className="font-mono font-semibold">
                                     slot {droppedNums.join(", slot ")}
                                   </span>
-                                  . Lower this match's slot count or move channels into slots
-                                  1–{TV_TILE_LAYOUT_SIZE}.
+                                  . Lower this match's slot count or move channels into slots 1–
+                                  {TV_TILE_LAYOUT_SIZE}.
                                 </div>
                                 <Link
                                   to="/admin/arena"
@@ -640,28 +720,24 @@ function MatchWatchInner({ match }: { match: PublicMatch }) {
                             </div>
                           );
                         })()}
-                        <MatchGrid
-                          match={match}
-                          channels={channels}
-                          activeSlot={activeSlot}
-                          onActiveSlotChange={setActiveSlot}
-                          loadingPlaylist={isLoading}
-                          playlistError={playlistError}
-                          providerLabel={providerLabel}
-                          playlistName={activePlaylistName}
-                          reloadKey={reloadKey}
-                          onRetry={handleRefresh}
-                          showAdminDebug={isAdmin}
-                        />
-
-                      </div>
-                    )
-                  }
+                      <MatchGrid
+                        match={match}
+                        channels={playbackChannels}
+                        activeSlot={activeSlot}
+                        onActiveSlotChange={setActiveSlot}
+                        loadingPlaylist={playbackLoading}
+                        playlistError={playbackError}
+                        providerLabel={providerLabel}
+                        playlistName={activePlaylistName}
+                        reloadKey={reloadKey}
+                        onRetry={handleRefresh}
+                        showAdminDebug={isAdmin}
+                      />
+                    </div>
+                  )
+                }
               </MatchAccessGate>
-
-
             </div>
-
 
             <div className={`min-w-0 ${chatVisible ? "" : "hidden"}`}>
               <ArenaChatPanel matchId={match.id} online={viewers} visible={chatVisible} />
@@ -679,7 +755,6 @@ function MatchWatchInner({ match }: { match: PublicMatch }) {
               onToggleChat={() => setChatVisible((v) => !v)}
               onLeave={() => navigate({ to: "/arena" })}
             />
-
           </div>
         </div>
       </main>

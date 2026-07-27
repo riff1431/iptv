@@ -15,8 +15,7 @@ import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 
-const read = (rel: string) =>
-  readFileSync(resolve(__dirname, "..", rel), "utf8");
+const read = (rel: string) => readFileSync(resolve(__dirname, "..", rel), "utf8");
 
 describe("match admin-vs-user UI access (route source)", () => {
   const route = read("routes/arena.$matchId.tsx");
@@ -53,6 +52,12 @@ describe("match admin-vs-user UI access (route source)", () => {
     expect(route).toMatch(/useAuth\(\)/);
     expect(route).toMatch(/\bisAdmin\b/);
   });
+  it("attaches signed relay URLs to matched Xtream channels before rendering tiles", () => {
+    expect(route).toMatch(/getPublicIptvChannelPlaybacks/);
+    expect(route).toMatch(/relayUrls\[channel\.id\]/);
+    expect(route).toMatch(/channels=\{playbackChannels\}/);
+    expect(route).toMatch(/loadingPlaylist=\{playbackLoading\}/);
+  });
 });
 
 describe("match provider-config server functions require admin", () => {
@@ -72,7 +77,9 @@ describe("match provider-config server functions require admin", () => {
 
   it("public provider read exposes no secrets and no admin fields", () => {
     // getPublicIptvProvider must NOT touch xtream_username / password / admin table.
-    const publicFn = providerFns.slice(providerFns.indexOf("getPublicIptvProvider"));
+    const start = providerFns.indexOf("getPublicIptvProvider");
+    const end = providerFns.indexOf("export const", start + 1);
+    const publicFn = providerFns.slice(start, end);
     expect(publicFn).not.toMatch(/xtream_username/);
     expect(publicFn).not.toMatch(/password/i);
     expect(publicFn).not.toMatch(/requireAdminServer/);
@@ -98,9 +105,13 @@ describe("all admin server-function modules are guarded", () => {
       // `.middleware([requireAdminServer])` call before its `.handler(`.
       // Public read-only fns are explicitly allow-listed by name.
       const publicAllowlist = new Set(["getPublicIptvProvider"]);
-      const decls = [
-        ...src.matchAll(/export const (\w+)\s*=\s*createServerFn\(/g),
-      ];
+      const authenticatedAllowlist = new Set([
+        "getPublicIptvChannels",
+        "getPublicIptvChannelPlayback",
+        "getPublicIptvChannelPlaybacks",
+        "refreshPublicIptvCatalog",
+      ]);
+      const decls = [...src.matchAll(/export const (\w+)\s*=\s*createServerFn\(/g)];
       expect(decls.length).toBeGreaterThan(0);
       for (let i = 0; i < decls.length; i++) {
         const name = decls[i][1];
@@ -112,6 +123,8 @@ describe("all admin server-function modules are guarded", () => {
         const preHandler = block.slice(0, handlerAt);
         if (publicAllowlist.has(name)) {
           expect(preHandler).not.toMatch(/\.middleware\(/);
+        } else if (authenticatedAllowlist.has(name)) {
+          expect(preHandler).toMatch(/\.middleware\(\[requireSupabaseAuth\]\)/);
         } else {
           expect(preHandler).toMatch(/\.middleware\(\[requireAdminServer\]\)/);
         }
@@ -142,4 +155,3 @@ describe("admin routes redirect non-admins via the parent /admin guard", () => {
     expect(src).toMatch(/beforeLoad/);
   });
 });
-

@@ -25,11 +25,7 @@ type Supa = SupabaseClient<Database>;
 
 const loungeIdInput = z.object({ loungeId: z.string().uuid() });
 
-async function loadAccess(
-  supabase: Supa,
-  userId: string,
-  loungeId: string,
-): Promise<LoungeAccess> {
+async function loadAccess(supabase: Supa, userId: string, loungeId: string): Promise<LoungeAccess> {
   const [lounge, session, balance] = await Promise.all([
     supabase
       .from("lounges")
@@ -51,8 +47,7 @@ async function loadAccess(
 
   const now = Date.now();
   const s = session.data;
-  const active =
-    !!s && new Date(s.expires_at).getTime() > now && s.status !== "expired";
+  const active = !!s && new Date(s.expires_at).getTime() > now && s.status !== "expired";
 
   return {
     loungeId,
@@ -69,7 +64,7 @@ async function loadAccess(
 /** Current access snapshot for the signed-in user. */
 export const getLoungeAccess = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
-  .inputValidator((d) => loungeIdInput.parse(d))
+  .validator((d) => loungeIdInput.parse(d))
   .handler(async ({ data, context }) =>
     loadAccess(context.supabase as unknown as Supa, context.userId, data.loungeId),
   );
@@ -81,7 +76,7 @@ export const getLoungeAccess = createServerFn({ method: "POST" })
  */
 export const enterLounge = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
-  .inputValidator((d) => loungeIdInput.parse(d))
+  .validator((d) => loungeIdInput.parse(d))
   .handler(async ({ data, context }) => {
     const supabase = context.supabase as unknown as Supa;
     const existing = await loadAccess(supabase, context.userId, data.loungeId);
@@ -112,7 +107,7 @@ export const enterLounge = createServerFn({ method: "POST" })
  */
 export const payToStay = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
-  .inputValidator((d) => loungeIdInput.parse(d))
+  .validator((d) => loungeIdInput.parse(d))
   .handler(async ({ data, context }) => {
     const supabase = context.supabase as unknown as Supa;
     const access = await loadAccess(supabase, context.userId, data.loungeId);
@@ -155,9 +150,7 @@ export const payToStay = createServerFn({ method: "POST" })
 /** Dev helper: credit the signed-in user's wallet with test funds. */
 export const creditOwnWallet = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
-  .inputValidator((d) =>
-    z.object({ amountCents: z.number().int().positive().max(50000) }).parse(d),
-  )
+  .validator((d) => z.object({ amountCents: z.number().int().positive().max(50000) }).parse(d))
   .handler(async ({ data, context }) => {
     const supabase = context.supabase as unknown as Supa;
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");

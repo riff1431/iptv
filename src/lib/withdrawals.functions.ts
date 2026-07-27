@@ -52,7 +52,7 @@ export const listOwnWithdrawals = createServerFn({ method: "GET" })
 
 export const createWithdrawal = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
-  .inputValidator((d: unknown) => createInput.parse(d))
+  .validator((d: unknown) => createInput.parse(d))
   .handler(async ({ data, context }): Promise<WithdrawalRequest> => {
     const { supabase, userId } = context;
 
@@ -110,7 +110,7 @@ export const createWithdrawal = createServerFn({ method: "POST" })
 
 export const cancelWithdrawal = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
-  .inputValidator((d: unknown) => z.object({ id: z.string().uuid() }).parse(d))
+  .validator((d: unknown) => z.object({ id: z.string().uuid() }).parse(d))
   .handler(async ({ data, context }): Promise<WithdrawalRequest> => {
     const { supabase, userId } = context;
     const { data: updated, error } = await supabase

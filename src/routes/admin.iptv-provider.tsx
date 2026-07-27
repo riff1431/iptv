@@ -19,6 +19,7 @@ import {
   ListFilter,
   Plus,
   ChevronDown,
+  RefreshCw,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -46,6 +47,8 @@ import {
   updateIptvProviderAdmin,
   testIptvProviderAdmin,
   previewIptvChannelsAdmin,
+  getIptvCatalogStatusAdmin,
+  syncIptvCatalogAdmin,
   type IptvProviderType,
 } from "@/lib/iptv-provider.functions";
 
@@ -68,6 +71,8 @@ function AdminIptvProviderPage() {
   const updateFn = useServerFn(updateIptvProviderAdmin);
   const testFn = useServerFn(testIptvProviderAdmin);
   const previewFn = useServerFn(previewIptvChannelsAdmin);
+  const getCatalogStatusFn = useServerFn(getIptvCatalogStatusAdmin);
+  const syncCatalogFn = useServerFn(syncIptvCatalogAdmin);
 
   const query = useQuery({
     queryKey: ["admin", "iptv-provider"],
@@ -120,6 +125,32 @@ function AdminIptvProviderPage() {
     setVisibleCount(100);
   }, [previewSearch, selectedCategory]);
 
+  const catalogStatusQuery = useQuery({
+    queryKey: ["admin", "iptv-catalog-status"],
+    queryFn: () => getCatalogStatusFn(),
+    refetchInterval: (query) => (query.state.data?.refreshing ? 3_000 : 60_000),
+  });
+
+  const syncCatalog = useMutation({
+    mutationFn: () => syncCatalogFn(),
+    onSuccess: (result) => {
+      if (result.refreshed) {
+        toast.success(`Channel catalog synced: ${result.channelCount.toLocaleString()} channels`);
+      } else if (result.refreshing) {
+        toast.info("A channel sync is already running");
+      } else {
+        toast.success("Channel catalog is already fresh");
+      }
+      qc.invalidateQueries({ queryKey: ["admin", "iptv-catalog-status"] });
+      qc.invalidateQueries({ queryKey: ["admin", "iptv-provider-preview"] });
+      qc.invalidateQueries({ queryKey: ["iptv", "playlist"] });
+    },
+    onError: (error: Error) => {
+      toast.error(`Channel sync failed: ${error.message}`);
+      qc.invalidateQueries({ queryKey: ["admin", "iptv-catalog-status"] });
+    },
+  });
+
   const save = useMutation({
     mutationFn: (opts?: { clearPassword?: boolean }) =>
       updateFn({
@@ -136,12 +167,19 @@ function AdminIptvProviderPage() {
           epg_url: form.epg_url.trim(),
         },
       }),
-    onSuccess: () => {
+    onSuccess: (saved) => {
       toast.success("IPTV provider settings saved");
       setForm((f) => ({ ...f, xtream_password: "" }));
       qc.invalidateQueries({ queryKey: ["admin", "iptv-provider"] });
       qc.invalidateQueries({ queryKey: ["admin", "iptv-provider-preview"] });
+      qc.invalidateQueries({ queryKey: ["admin", "iptv-catalog-status"] });
       qc.invalidateQueries({ queryKey: ["iptv-provider", "public"] });
+      const canSync =
+        (saved.provider_type === "m3u" && Boolean(saved.m3u_url)) ||
+        (saved.provider_type === "xtream" &&
+          Boolean(saved.xtream_server_url) &&
+          saved.has_xtream_password);
+      if (canSync) syncCatalog.mutate();
     },
     onError: (e: Error) => toast.error(e.message),
   });
@@ -214,6 +252,57 @@ function AdminIptvProviderPage() {
         </div>
       </div>
 
+      <div className="arena-card flex flex-wrap items-center justify-between gap-4 rounded-xl p-4">
+        <div className="min-w-0">
+          <div className="flex flex-wrap items-center gap-2">
+            <p className="text-sm font-semibold">Channel catalog cache</p>
+            {catalogStatusQuery.isLoading ? (
+              <Badge variant="outline">Checking...</Badge>
+            ) : catalogStatusQuery.data?.refreshing ? (
+              <Badge className="border-amber-500/40 bg-amber-500/10 text-amber-300">Syncing</Badge>
+            ) : catalogStatusQuery.data?.providerMatches && !catalogStatusQuery.data.stale ? (
+              <Badge className="border-emerald-500/40 bg-emerald-500/10 text-emerald-300">
+                Fresh
+              </Badge>
+            ) : (
+              <Badge className="border-rose-500/40 bg-rose-500/10 text-rose-300">
+                Sync required
+              </Badge>
+            )}
+          </div>
+          <p className="mt-1 text-xs text-muted-foreground">
+            {catalogStatusQuery.data?.providerMatches
+              ? `${catalogStatusQuery.data.channelCount.toLocaleString()} channels · Last synced ${
+                  catalogStatusQuery.data.fetchedAt
+                    ? new Date(catalogStatusQuery.data.fetchedAt).toLocaleString()
+                    : "never"
+                }`
+              : "The saved provider does not have a matching channel snapshot yet."}
+          </p>
+          {catalogStatusQuery.data?.lastError && (
+            <p
+              className="mt-1 max-w-3xl truncate text-xs text-rose-300"
+              title={catalogStatusQuery.data.lastError}
+            >
+              Last sync error: {catalogStatusQuery.data.lastError}
+            </p>
+          )}
+        </div>
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          className="gap-2"
+          onClick={() => syncCatalog.mutate()}
+          disabled={syncCatalog.isPending || catalogStatusQuery.data?.refreshing}
+        >
+          <RefreshCw
+            className={`h-4 w-4 ${syncCatalog.isPending || catalogStatusQuery.data?.refreshing ? "animate-spin" : ""}`}
+          />
+          Sync Channels Now
+        </Button>
+      </div>
+
       {query.isLoading ? (
         <div className="arena-card flex items-center gap-2 rounded-xl p-6 text-sm text-muted-foreground">
           <Loader2 className="h-4 w-4 animate-spin" /> Loading current settings…
@@ -272,9 +361,7 @@ function AdminIptvProviderPage() {
                   <Input
                     id="xt-url"
                     value={form.xtream_server_url}
-                    onChange={(e) =>
-                      setForm((f) => ({ ...f, xtream_server_url: e.target.value }))
-                    }
+                    onChange={(e) => setForm((f) => ({ ...f, xtream_server_url: e.target.value }))}
                     placeholder="http://provider.example.com:8080"
                   />
                 </div>
@@ -283,9 +370,7 @@ function AdminIptvProviderPage() {
                   <Input
                     id="xt-user"
                     value={form.xtream_username}
-                    onChange={(e) =>
-                      setForm((f) => ({ ...f, xtream_username: e.target.value }))
-                    }
+                    onChange={(e) => setForm((f) => ({ ...f, xtream_username: e.target.value }))}
                     placeholder="username"
                   />
                 </div>
@@ -303,9 +388,7 @@ function AdminIptvProviderPage() {
                       id="xt-pw"
                       type="password"
                       value={form.xtream_password}
-                      onChange={(e) =>
-                        setForm((f) => ({ ...f, xtream_password: e.target.value }))
-                      }
+                      onChange={(e) => setForm((f) => ({ ...f, xtream_password: e.target.value }))}
                       placeholder={hasPw ? "•••••••• (leave blank to keep)" : "password"}
                       autoComplete="new-password"
                     />
@@ -442,13 +525,17 @@ function AdminIptvProviderPage() {
               <Tv className="h-5 w-5 text-arena-violet" />
               Full Live Channels Preview
               {previewQuery.data && (
-                <Badge variant="secondary" className="ml-auto font-mono text-xs bg-arena-violet/20 text-arena-violet">
+                <Badge
+                  variant="secondary"
+                  className="ml-auto font-mono text-xs bg-arena-violet/20 text-arena-violet"
+                >
                   {previewQuery.data.totalChannels.toLocaleString()} Total Channels Loaded
                 </Badge>
               )}
             </DialogTitle>
             <DialogDescription className="text-xs text-muted-foreground">
-              All live channels fetched directly from your active IPTV provider ({query.data?.provider_type.toUpperCase()}).
+              All live channels fetched directly from your active IPTV provider (
+              {query.data?.provider_type.toUpperCase()}).
             </DialogDescription>
           </DialogHeader>
 
@@ -456,14 +543,17 @@ function AdminIptvProviderPage() {
             <div className="flex h-72 flex-col items-center justify-center gap-3 text-sm text-muted-foreground">
               <Loader2 className="h-7 w-7 animate-spin text-arena-violet" />
               <p>Fetching full channel list from provider server…</p>
-              <span className="text-xs text-muted-foreground/60">Parsing streams and categories</span>
+              <span className="text-xs text-muted-foreground/60">
+                Parsing streams and categories
+              </span>
             </div>
           ) : previewQuery.isError ? (
             <div className="flex h-64 flex-col items-center justify-center gap-2 p-6 text-center text-rose-400">
               <XCircle className="h-8 w-8" />
               <p className="text-sm font-semibold">Failed to fetch live channels</p>
               <p className="text-xs text-muted-foreground">
-                {(previewQuery.error as Error)?.message || "Check your provider settings and test connection."}
+                {(previewQuery.error as Error)?.message ||
+                  "Check your provider settings and test connection."}
               </p>
             </div>
           ) : (
@@ -487,7 +577,9 @@ function AdminIptvProviderPage() {
                       onChange={(e) => setSelectedCategory(e.target.value)}
                       className="w-full rounded-md border border-arena-border bg-arena-panel-2 px-3 py-2 text-xs text-white outline-none focus:border-arena-violet"
                     >
-                      <option value="ALL">All Categories ({previewQuery.data.categories.length})</option>
+                      <option value="ALL">
+                        All Categories ({previewQuery.data.categories.length})
+                      </option>
                       {previewQuery.data.categories.map((cat) => (
                         <option key={cat} value={cat}>
                           {cat}
@@ -502,7 +594,8 @@ function AdminIptvProviderPage() {
               <div className="flex items-center justify-between text-xs text-muted-foreground px-1 py-1 bg-arena-panel-2/30 rounded px-2">
                 <span>
                   Showing <strong className="text-white">{visibleChannels.length}</strong> of{" "}
-                  <strong className="text-white">{filteredChannels.length.toLocaleString()}</strong> matching channels
+                  <strong className="text-white">{filteredChannels.length.toLocaleString()}</strong>{" "}
+                  matching channels
                   {filteredChannels.length !== previewQuery.data?.totalChannels && (
                     <span className="text-muted-foreground/60 ml-1">
                       (filtered from {previewQuery.data?.totalChannels.toLocaleString()})
@@ -510,7 +603,10 @@ function AdminIptvProviderPage() {
                   )}
                 </span>
                 {selectedCategory !== "ALL" && (
-                  <Badge variant="outline" className="text-[10px] border-arena-violet/40 text-arena-violet">
+                  <Badge
+                    variant="outline"
+                    className="text-[10px] border-arena-violet/40 text-arena-violet"
+                  >
                     Category: {selectedCategory}
                   </Badge>
                 )}
@@ -549,7 +645,9 @@ function AdminIptvProviderPage() {
                         {ch.group && (
                           <p className="truncate text-[10px] text-muted-foreground">{ch.group}</p>
                         )}
-                        <span className="font-mono text-[9px] text-muted-foreground/60">ID: {ch.id}</span>
+                        <span className="font-mono text-[9px] text-muted-foreground/60">
+                          ID: {ch.id}
+                        </span>
                       </div>
                     </div>
                   ))

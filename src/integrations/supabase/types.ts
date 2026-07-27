@@ -323,6 +323,36 @@ export type Database = {
           },
         ]
       }
+      iptv_global_catalog_cache: {
+        Row: {
+          catalog_json: string
+          channel_count: number
+          fetched_at: string
+          id: boolean
+          last_error: string | null
+          provider_fingerprint: string
+          refresh_started_at: string | null
+        }
+        Insert: {
+          catalog_json: string
+          channel_count: number
+          fetched_at?: string
+          id?: boolean
+          last_error?: string | null
+          provider_fingerprint: string
+          refresh_started_at?: string | null
+        }
+        Update: {
+          catalog_json?: string
+          channel_count?: number
+          fetched_at?: string
+          id?: boolean
+          last_error?: string | null
+          provider_fingerprint?: string
+          refresh_started_at?: string | null
+        }
+        Relationships: []
+      }
       iptv_proxy_ip_blocks: {
         Row: {
           blocked_until: string
@@ -570,6 +600,32 @@ export type Database = {
           },
         ]
       }
+      match_reminders: {
+        Row: {
+          created_at: string
+          match_id: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          match_id: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          match_id?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "match_reminders_match_id_fkey"
+            columns: ["match_id"]
+            isOneToOne: false
+            referencedRelation: "matches"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       match_slots: {
         Row: {
           channel_id: string | null
@@ -779,21 +835,27 @@ export type Database = {
           created_at: string
           display_name: string
           id: string
+          is_vip: boolean
           updated_at: string
+          vip_expires_at: string | null
         }
         Insert: {
           avatar_url?: string | null
           created_at?: string
           display_name?: string
           id: string
+          is_vip?: boolean
           updated_at?: string
+          vip_expires_at?: string | null
         }
         Update: {
           avatar_url?: string | null
           created_at?: string
           display_name?: string
           id?: string
+          is_vip?: boolean
           updated_at?: string
+          vip_expires_at?: string | null
         }
         Relationships: []
       }
@@ -1365,6 +1427,13 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      claim_iptv_global_catalog_refresh: {
+        Args: {
+          _force?: boolean
+          _provider_fingerprint: string
+        }
+        Returns: boolean
+      }
       admin_dashboard_stats: {
         Args: never
         Returns: {
@@ -1450,6 +1519,14 @@ export type Database = {
         Returns: undefined
       }
       wallet_balance_cents: { Args: { _user_id: string }; Returns: number }
+      upgrade_user_vip: {
+        Args: { _user_id: string }
+        Returns: {
+          charged: boolean
+          is_vip: boolean
+          vip_expires_at: string
+        }[]
+      }
     }
     Enums: {
       app_role: "admin" | "moderator" | "user"
@@ -1466,6 +1543,7 @@ export type Database = {
         | "credit"
         | "debit_tip"
         | "debit_match_entry"
+        | "debit_vip_upgrade"
       withdrawal_method: "paypal" | "bank_transfer" | "crypto"
       withdrawal_status:
         | "pending"
@@ -1614,6 +1692,7 @@ export const Constants = {
         "credit",
         "debit_tip",
         "debit_match_entry",
+        "debit_vip_upgrade",
       ],
       withdrawal_method: ["paypal", "bank_transfer", "crypto"],
       withdrawal_status: [

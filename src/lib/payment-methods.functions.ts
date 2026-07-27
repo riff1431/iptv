@@ -52,7 +52,6 @@ function normalizeRow(r: any): PaymentMethod {
   } as PaymentMethod;
 }
 
-
 async function assertAdmin(context: { supabase: any; userId: string }) {
   const { data, error } = await context.supabase.rpc("has_role", {
     _user_id: context.userId,
@@ -90,7 +89,7 @@ export const listAllPaymentMethods = createServerFn({ method: "GET" })
 
 export const upsertPaymentMethod = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
-  .inputValidator((d: unknown) => upsertInput.parse(d))
+  .validator((d: unknown) => upsertInput.parse(d))
   .handler(async ({ data, context }): Promise<PaymentMethod> => {
     await assertAdmin(context);
     const row: Record<string, unknown> = {
@@ -128,13 +127,10 @@ export const upsertPaymentMethod = createServerFn({ method: "POST" })
 
 export const deletePaymentMethod = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
-  .inputValidator((d: unknown) => z.object({ id: z.string().uuid() }).parse(d))
+  .validator((d: unknown) => z.object({ id: z.string().uuid() }).parse(d))
   .handler(async ({ data, context }): Promise<{ ok: true }> => {
     await assertAdmin(context);
-    const { error } = await context.supabase
-      .from("payment_methods")
-      .delete()
-      .eq("id", data.id);
+    const { error } = await context.supabase.from("payment_methods").delete().eq("id", data.id);
     if (error) throw new Error(error.message);
     return { ok: true };
   });

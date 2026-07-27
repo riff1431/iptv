@@ -16,6 +16,7 @@ import { cn } from "@/lib/utils";
 
 type Props = {
   channels: IptvChannel[];
+  loading?: boolean;
   favorites: string[];
   activeId?: string;
   onToggleFavorite: (id: string) => void;
@@ -23,7 +24,13 @@ type Props = {
 
 const ALL = "__all__";
 
-export function ChannelList({ channels, favorites, activeId, onToggleFavorite }: Props) {
+export function ChannelList({
+  channels,
+  loading = false,
+  favorites,
+  activeId,
+  onToggleFavorite,
+}: Props) {
   const [q, setQ] = useState("");
   const [group, setGroup] = useState<string>(ALL);
   const [tab, setTab] = useState<"all" | "favorites">("all");
@@ -165,7 +172,12 @@ export function ChannelList({ channels, favorites, activeId, onToggleFavorite }:
 
       {/* Channels Items List/Grid container */}
       <div className="flex-1 overflow-y-auto pr-1">
-        {displayedChannels.length === 0 ? (
+        {loading ? (
+          <div className="flex flex-col items-center justify-center p-8 text-center">
+            <div className="h-7 w-7 animate-spin rounded-full border-2 border-primary border-t-transparent" />
+            <p className="mt-3 text-xs font-medium text-muted-foreground">Loading channels…</p>
+          </div>
+        ) : displayedChannels.length === 0 ? (
           <div className="flex flex-col items-center justify-center p-8 text-center">
             <Search className="h-8 w-8 text-muted-foreground/40" />
             <p className="mt-2 text-xs font-medium text-muted-foreground">No channels found</p>
@@ -212,8 +224,10 @@ export function ChannelList({ channels, favorites, activeId, onToggleFavorite }:
         {displayLimit < allFiltered.length && (
           <div className="my-4 flex flex-col items-center gap-2 rounded-lg border border-white/5 bg-card/30 p-3 backdrop-blur-sm">
             <p className="text-[11px] font-medium text-muted-foreground">
-              Showing <span className="font-semibold text-foreground">{displayedChannels.length}</span> of{" "}
-              <span className="font-semibold text-foreground">{allFiltered.length}</span> matching channels
+              Showing{" "}
+              <span className="font-semibold text-foreground">{displayedChannels.length}</span> of{" "}
+              <span className="font-semibold text-foreground">{allFiltered.length}</span> matching
+              channels
             </p>
             <div className="flex items-center gap-2">
               <Button

@@ -32,6 +32,7 @@ export type PublicMatch = {
   accentHome: string | null;
   accentAway: string | null;
   thumbnailUrl: string | null;
+  entryFeeCents: number;
   sortOrder: number;
   viewerCount: number;
   ownerUserId: string | null;
@@ -39,19 +40,10 @@ export type PublicMatch = {
   slots: PublicMatchSlot[];
 };
 
-
 function serverPublic() {
-  return createClient<Database>(
-    process.env.SUPABASE_URL!,
-    process.env.SUPABASE_PUBLISHABLE_KEY!,
-    { auth: { storage: undefined, persistSession: false, autoRefreshToken: false } },
-  );
-}
-
-function baselineViewers(id: string): number {
-  let h = 5381;
-  for (let i = 0; i < id.length; i++) h = ((h << 5) + h + id.charCodeAt(i)) | 0;
-  return 200 + (Math.abs(h) % 3000);
+  return createClient<Database>(process.env.SUPABASE_URL!, process.env.SUPABASE_PUBLISHABLE_KEY!, {
+    auth: { storage: undefined, persistSession: false, autoRefreshToken: false },
+  });
 }
 
 type MatchRow = Database["public"]["Tables"]["matches"]["Row"];
@@ -61,6 +53,7 @@ function mapMatch(
   row: MatchRow,
   slots: SlotRow[],
   hostDisplayName: string | null,
+  viewerCount: number,
 ): PublicMatch {
   const bySlot = new Map(slots.map((s) => [s.slot, s]));
   const count = Math.max(1, Math.min(8, row.slot_count ?? 4));
@@ -90,8 +83,9 @@ function mapMatch(
     accentHome: row.accent_home,
     accentAway: row.accent_away,
     thumbnailUrl: row.thumbnail_url,
+    entryFeeCents: row.entry_fee_cents ?? 0,
     sortOrder: row.sort_order ?? 0,
-    viewerCount: baselineViewers(row.id),
+    viewerCount,
     ownerUserId: row.owner_id ?? null,
     hostDisplayName,
     slots: fullSlots,
@@ -112,30 +106,45 @@ export const listPublicMatches = createServerFn({ method: "GET" }).handler(async
   const ownerIds = Array.from(
     new Set((matches ?? []).map((m) => m.owner_id).filter((v): v is string => Boolean(v))),
   );
-  const [{ data: slots }, profileRes] = await Promise.all([
+  const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+  const since = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+  const [{ data: slots }, profileRes, sessionRes] = await Promise.all([
     ids.length
       ? supa.from("match_slots").select("*").in("match_id", ids).order("slot")
       : Promise.resolve({ data: [] as SlotRow[] }),
     ownerIds.length
       ? supa.from("profiles").select("id, display_name").in("id", ownerIds)
       : Promise.resolve({ data: [] as Array<{ id: string; display_name: string | null }> }),
+    ids.length
+      ? supabaseAdmin
+          .from("match_sessions")
+          .select("match_id, user_id")
+          .in("match_id", ids)
+          .gte("entered_at", since)
+      : Promise.resolve({ data: [] as Array<{ match_id: string; user_id: string }> }),
   ]);
   const nameMap = new Map<string, string | null>();
   for (const p of (profileRes.data ?? []) as Array<{ id: string; display_name: string | null }>) {
     nameMap.set(p.id, p.display_name);
+  }
+  const viewersByMatch = new Map<string, Set<string>>();
+  for (const session of sessionRes.data ?? []) {
+    const viewers = viewersByMatch.get(session.match_id) ?? new Set<string>();
+    viewers.add(session.user_id);
+    viewersByMatch.set(session.match_id, viewers);
   }
 
   return (matches ?? []).map((m) =>
     mapMatch(
       m,
       (slots ?? []).filter((s) => s.match_id === m.id),
-      m.owner_id ? nameMap.get(m.owner_id) ?? null : null,
+      m.owner_id ? (nameMap.get(m.owner_id) ?? null) : null,
+      viewersByMatch.get(m.id)?.size ?? 0,
     ),
   );
 });
 
 export const publicMatchesQuery = () =>
-
   queryOptions({
     queryKey: ["publicMatches"],
     queryFn: () => listPublicMatches(),

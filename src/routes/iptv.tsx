@@ -19,7 +19,8 @@ export const Route = createFileRoute("/iptv")({
     const origin = loaderData?.origin ?? "";
     const url = origin ? `${origin}/iptv` : "/iptv";
     const title = "IPTV — Live TV Cinema | PGX Sports";
-    const description = "Stream 18,000+ live IPTV channels with HD clarity and zero buffering in PGX Sports Lounge.";
+    const description =
+      "Stream 18,000+ live IPTV channels with HD clarity and zero buffering in PGX Sports Lounge.";
     return {
       meta: [
         { title },
@@ -63,7 +64,12 @@ function IptvLayout() {
         <div className="rounded-lg border border-destructive/40 bg-destructive/10 p-4 text-xs text-destructive">
           <p className="font-semibold">{error instanceof Error ? error.message : String(error)}</p>
           <div className="mt-3">
-            <Button asChild size="sm" variant="outline" className="h-8 border-destructive/50 text-xs">
+            <Button
+              asChild
+              size="sm"
+              variant="outline"
+              className="h-8 border-destructive/50 text-xs"
+            >
               <Link to="/iptv/settings">Re-check IPTV Settings</Link>
             </Button>
           </div>
@@ -81,6 +87,7 @@ function IptvLayout() {
           <div className="min-h-0 flex-1">
             <ChannelList
               channels={channels}
+              loading={isLoading}
               favorites={favorites}
               activeId={activeId}
               onToggleFavorite={toggle}
@@ -108,11 +115,19 @@ function IptvLayout() {
             </Button>
             <Sheet open={sheetOpen} onOpenChange={setSheetOpen}>
               <SheetTrigger asChild>
-                <Button variant="outline" size="icon" className="h-9 w-9 border-white/10 md:hidden" aria-label="Channels">
+                <Button
+                  variant="outline"
+                  size="icon"
+                  className="h-9 w-9 border-white/10 md:hidden"
+                  aria-label="Channels"
+                >
                   <Menu className="h-4 w-4" />
                 </Button>
               </SheetTrigger>
-              <SheetContent side="left" className="w-[88vw] max-w-md border-white/10 bg-[#0B0F17] p-4 text-foreground">
+              <SheetContent
+                side="left"
+                className="w-[88vw] max-w-md border-white/10 bg-[#0B0F17] p-4 text-foreground"
+              >
                 <SheetHeader className="pb-2 border-b border-white/10">
                   <SheetTitle className="flex items-center gap-2 text-base text-foreground">
                     <Tv className="h-5 w-5 text-primary" />
@@ -130,31 +145,53 @@ function IptvLayout() {
               </div>
               <div>
                 <div className="flex items-center gap-2">
-                  <h1 className="text-base font-bold tracking-tight text-foreground">IPTV Cinema</h1>
-                  <Badge variant="outline" className="hidden sm:inline-flex border-emerald-500/40 bg-emerald-500/10 text-emerald-400 text-[10px] font-bold">
+                  <h1 className="text-base font-bold tracking-tight text-foreground">
+                    IPTV Cinema
+                  </h1>
+                  <Badge
+                    variant="outline"
+                    className="hidden sm:inline-flex border-emerald-500/40 bg-emerald-500/10 text-emerald-400 text-[10px] font-bold"
+                  >
                     <Radio className="mr-1 h-3 w-3 animate-pulse text-emerald-400" />
                     LIVE
                   </Badge>
                 </div>
                 <p className="text-[11px] text-muted-foreground">
-                  {isLoading ? "Connecting to provider..." : `${channels.length.toLocaleString()} Live Channels`}
+                  {isLoading
+                    ? "Connecting to provider..."
+                    : `${channels.length.toLocaleString()} Live Channels`}
                 </p>
               </div>
             </div>
           </div>
 
           <div className="flex items-center gap-2">
-            <Button asChild variant="ghost" size="sm" className="hidden sm:inline-flex h-8 border-white/5 text-xs text-muted-foreground hover:text-foreground">
+            <Button
+              asChild
+              variant="ghost"
+              size="sm"
+              className="hidden sm:inline-flex h-8 border-white/5 text-xs text-muted-foreground hover:text-foreground"
+            >
               <Link to="/">
                 <Home className="mr-1.5 h-3.5 w-3.5" /> Home
               </Link>
             </Button>
-            <Button asChild variant="ghost" size="sm" className="hidden sm:inline-flex h-8 border-white/5 text-xs text-muted-foreground hover:text-foreground">
+            <Button
+              asChild
+              variant="ghost"
+              size="sm"
+              className="hidden sm:inline-flex h-8 border-white/5 text-xs text-muted-foreground hover:text-foreground"
+            >
               <Link to="/arena">
                 <Trophy className="mr-1.5 h-3.5 w-3.5 text-amber-400" /> Arena
               </Link>
             </Button>
-            <Button asChild variant="outline" size="sm" className="h-8 border-white/10 bg-white/5 text-xs font-semibold hover:bg-white/10">
+            <Button
+              asChild
+              variant="outline"
+              size="sm"
+              className="h-8 border-white/10 bg-white/5 text-xs font-semibold hover:bg-white/10"
+            >
               <Link to="/iptv/settings">
                 <Settings2 className="mr-1.5 h-3.5 w-3.5 text-primary" /> Settings
               </Link>

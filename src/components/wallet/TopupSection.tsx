@@ -20,7 +20,6 @@ import {
   Eye,
   type LucideIcon,
 } from "lucide-react";
-import * as LucideIcons from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ThumbHeader } from "@/components/ThumbFallback";
 import { Input } from "@/components/ui/input";
@@ -68,9 +67,17 @@ const KIND_FALLBACK_ICON: Record<TopupMethod, LucideIcon> = {
   other: MoreHorizontal,
 };
 
+const PAYMENT_ICONS: Record<string, LucideIcon> = {
+  Landmark,
+  Smartphone,
+  Coins,
+  MoreHorizontal,
+  CreditCard,
+};
+
 function resolveIcon(m: Pick<PaymentMethod, "icon" | "kind">): LucideIcon {
   if (m.icon) {
-    const found = (LucideIcons as unknown as Record<string, LucideIcon>)[m.icon];
+    const found = PAYMENT_ICONS[m.icon];
     if (found) return found;
   }
   return KIND_FALLBACK_ICON[m.kind] ?? CreditCard;

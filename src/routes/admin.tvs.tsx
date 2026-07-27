@@ -1,18 +1,42 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useServerFn } from "@tanstack/react-start";
-import { Tv, Search, PlayCircle, Loader2, Radio, Signal, CheckCircle2, XCircle, AlertTriangle, Link2Off, KeyRound, ListX, ArrowUp, ArrowDown } from "lucide-react";
+import {
+  Tv,
+  Search,
+  PlayCircle,
+  Loader2,
+  Radio,
+  Signal,
+  CheckCircle2,
+  XCircle,
+  AlertTriangle,
+  Link2Off,
+  KeyRound,
+  ListX,
+  ArrowUp,
+  ArrowDown,
+} from "lucide-react";
 import { toast } from "sonner";
 import { z } from "zod";
 import { Button } from "@/components/ui/button";
-import { useLounges, useTvsForLounge, useUpsertTv, useUpdateLoungeMatch, useSwapTvSlots, type Tv as TvRow, type Lounge, type LoungeMatchInput } from "@/lib/admin-queries";
-import { IptvChannelPicker, type PickedChannel } from "@/components/IptvChannelPicker";
+import {
+  useLounges,
+  useTvsForLounge,
+  useUpsertTv,
+  useUpdateLoungeMatch,
+  useSwapTvSlots,
+  type Tv as TvRow,
+  type Lounge,
+  type LoungeMatchInput,
+} from "@/lib/admin-queries";
+import {
+  GlobalIptvChannelPicker as IptvChannelPicker,
+  type PickedChannel,
+} from "@/components/GlobalIptvChannelPicker";
 import { XtreamChannelPicker, type XtreamPicked } from "@/components/XtreamChannelPicker";
 import { StreamPreviewDialog } from "@/components/StreamPreviewDialog";
-import {
-  AdminEmptyBlock,
-  AdminLoadingBlock,
-} from "@/components/admin/AdminStates";
+import { AdminEmptyBlock, AdminLoadingBlock } from "@/components/admin/AdminStates";
 import { StreamControl } from "@/components/admin/StreamControl";
 import { testIptvConnection } from "@/lib/iptv-admin.functions";
 import { Building2 } from "lucide-react";
@@ -81,9 +105,7 @@ const tvFormSchema = z
     }
     // Cross-field: name/logo/stream only make sense when a channel id is set.
     const hasAny =
-      !!val.selected_channel_name ||
-      !!val.selected_channel_logo ||
-      !!val.current_stream_url;
+      !!val.selected_channel_name || !!val.selected_channel_logo || !!val.current_stream_url;
     if (hasAny && !val.selected_channel_id) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
@@ -103,7 +125,6 @@ type TvFormErrors = Partial<
     string
   >
 >;
-
 
 function AdminTvsPage() {
   const { data: lounges = [] } = useLounges();
@@ -201,13 +222,7 @@ function TvConfigCard({
   const [testing, setTesting] = useState(false);
   const [testResult, setTestResult] = useState<{
     ok: boolean;
-    code:
-      | "ok"
-      | "invalid_url"
-      | "unreachable"
-      | "auth_failed"
-      | "no_channels"
-      | "upstream_error";
+    code: "ok" | "invalid_url" | "unreachable" | "auth_failed" | "no_channels" | "upstream_error";
     headline: string;
     detail: string;
     channelCount?: number;
@@ -268,7 +283,6 @@ function TvConfigCard({
     });
   }, [tv?.id]);
 
-
   // Live-validate whenever the validated fields change so inline errors clear.
   const liveErrors = useMemo<TvFormErrors>(() => {
     const parsed = tvFormSchema.safeParse(form);
@@ -291,16 +305,15 @@ function TvConfigCard({
   // OR the field currently has a value that fails validation.
   const shownErrors: TvFormErrors = { ...liveErrors, ...errors };
 
-
   function applyPickedChannel(ch: PickedChannel) {
     setForm((f) => ({
       ...f,
-      provider_name: f.provider_name || "iptv-org",
-      connection_type: "hls",
+      provider_name: "Global IPTV",
+      connection_type: ch.streamUrl ? "hls" : "xtream",
       selected_channel_id: ch.id,
       selected_channel_name: ch.name,
       selected_channel_logo: ch.logo ?? "",
-      current_stream_url: ch.streamUrl ?? f.current_stream_url,
+      current_stream_url: ch.streamUrl ?? "",
     }));
     toast.success(`Selected ${ch.name}`);
   }
@@ -397,7 +410,6 @@ function TvConfigCard({
     const previousForm = form;
     const previousTv = tv;
 
-
     // Client-side validation gate.
     const parsed = tvFormSchema.safeParse(form);
     if (!parsed.success) {
@@ -446,9 +458,7 @@ function TvConfigCard({
         accent_away: form.accent_away || null,
       });
 
-
-      const channelName =
-        saved?.selected_channel_name ?? form.selected_channel_name;
+      const channelName = saved?.selected_channel_name ?? form.selected_channel_name;
       const channelId = saved?.selected_channel_id ?? form.selected_channel_id;
       const streamUrl = saved?.current_stream_url ?? form.current_stream_url;
       const logo = saved?.selected_channel_logo ?? form.selected_channel_logo;
@@ -456,9 +466,7 @@ function TvConfigCard({
 
       if (channelId) {
         const truncatedUrl =
-          streamUrl && streamUrl.length > 60
-            ? `${streamUrl.slice(0, 57)}…`
-            : streamUrl || "—";
+          streamUrl && streamUrl.length > 60 ? `${streamUrl.slice(0, 57)}…` : streamUrl || "—";
         toast.success(`TV ${slot} saved — channel persisted`, {
           description: [
             `Channel: ${channelName || channelId} (${channelId})`,
@@ -482,16 +490,13 @@ function TvConfigCard({
         username: previousTv?.username ?? previousForm.username,
         password: previousTv?.password ?? previousForm.password,
         connection_type:
-          (previousTv?.connection_type as ConnType | null) ??
-          previousForm.connection_type,
-        selected_channel_id:
-          previousTv?.selected_channel_id ?? previousForm.selected_channel_id,
+          (previousTv?.connection_type as ConnType | null) ?? previousForm.connection_type,
+        selected_channel_id: previousTv?.selected_channel_id ?? previousForm.selected_channel_id,
         selected_channel_name:
           previousTv?.selected_channel_name ?? previousForm.selected_channel_name,
         selected_channel_logo:
           previousTv?.selected_channel_logo ?? previousForm.selected_channel_logo,
-        current_stream_url:
-          previousTv?.current_stream_url ?? previousForm.current_stream_url,
+        current_stream_url: previousTv?.current_stream_url ?? previousForm.current_stream_url,
         enabled: previousTv?.enabled ?? previousForm.enabled,
         sport: previousTv?.sport ?? previousForm.sport,
         matchup: previousTv?.matchup ?? previousForm.matchup,
@@ -505,12 +510,8 @@ function TvConfigCard({
         accent_away: previousTv?.accent_away ?? previousForm.accent_away,
       });
 
-
-      const err = e as
-        | { message?: string; code?: string; details?: string; hint?: string }
-        | Error;
-      const message =
-        (err as { message?: string }).message ?? "Unknown error while saving";
+      const err = e as { message?: string; code?: string; details?: string; hint?: string } | Error;
+      const message = (err as { message?: string }).message ?? "Unknown error while saving";
       const code = (err as { code?: string }).code;
       const details = (err as { details?: string }).details;
       const hint = (err as { hint?: string }).hint;
@@ -532,8 +533,6 @@ function TvConfigCard({
       savingRef.current = false;
     }
   }
-
-
 
   const status = tv?.status ?? "unconfigured";
   const statusColors: Record<string, string> = {
@@ -586,8 +585,7 @@ function TvConfigCard({
                   { loungeId, slotA: slot, slotB: slot - 1 },
                   {
                     onSuccess: () => toast.success(`Swapped TV ${slot} ↔ TV ${slot - 1}`),
-                    onError: (e) =>
-                      toast.error(`Reorder failed — ${(e as Error).message}`),
+                    onError: (e) => toast.error(`Reorder failed — ${(e as Error).message}`),
                   },
                 )
               }
@@ -605,8 +603,7 @@ function TvConfigCard({
                   { loungeId, slotA: slot, slotB: slot + 1 },
                   {
                     onSuccess: () => toast.success(`Swapped TV ${slot} ↔ TV ${slot + 1}`),
-                    onError: (e) =>
-                      toast.error(`Reorder failed — ${(e as Error).message}`),
+                    onError: (e) => toast.error(`Reorder failed — ${(e as Error).message}`),
                   },
                 )
               }
@@ -636,10 +633,8 @@ function TvConfigCard({
               swap.mutate(
                 { loungeId, slotA: slot, slotB: nextSlot },
                 {
-                  onSuccess: () =>
-                    toast.success(`Swapped TV ${slot} ↔ TV ${nextSlot}`),
-                  onError: (err) =>
-                    toast.error(`Reorder failed — ${(err as Error).message}`),
+                  onSuccess: () => toast.success(`Swapped TV ${slot} ↔ TV ${nextSlot}`),
+                  onError: (err) => toast.error(`Reorder failed — ${(err as Error).message}`),
                 },
               );
             }}
@@ -701,9 +696,7 @@ function TvConfigCard({
             </span>
             <select
               value={form.connection_type}
-              onChange={(e) =>
-                setForm({ ...form, connection_type: e.target.value as ConnType })
-              }
+              onChange={(e) => setForm({ ...form, connection_type: e.target.value as ConnType })}
               className="w-full rounded-md border border-arena-border bg-arena-panel-2/60 px-3 py-2 text-sm"
               data-testid="tv-connection-type"
             >
@@ -737,64 +730,62 @@ function TvConfigCard({
               </>
             )}
           </Button>
-
         </div>
-        {testResult && (() => {
-          const Icon =
-            testResult.code === "ok"
-              ? CheckCircle2
-              : testResult.code === "invalid_url"
-                ? AlertTriangle
+        {testResult &&
+          (() => {
+            const Icon =
+              testResult.code === "ok"
+                ? CheckCircle2
+                : testResult.code === "invalid_url"
+                  ? AlertTriangle
+                  : testResult.code === "unreachable"
+                    ? Link2Off
+                    : testResult.code === "auth_failed"
+                      ? KeyRound
+                      : testResult.code === "no_channels"
+                        ? ListX
+                        : XCircle;
+            const tone = testResult.ok
+              ? "border-success/40 bg-success/10 text-success"
+              : testResult.code === "no_channels"
+                ? "border-warning/40 bg-warning/10 text-warning"
+                : "border-destructive/40 bg-destructive/10 text-destructive";
+            const hint =
+              testResult.code === "invalid_url"
+                ? "Check the Server URL — it must start with http:// or https:// and include the host/port."
                 : testResult.code === "unreachable"
-                  ? Link2Off
+                  ? "The server didn't respond. Check the URL, port, and whether the provider is online."
                   : testResult.code === "auth_failed"
-                    ? KeyRound
+                    ? "The provider rejected the credentials. Double-check the username and password."
                     : testResult.code === "no_channels"
-                      ? ListX
-                      : XCircle;
-          const tone = testResult.ok
-            ? "border-success/40 bg-success/10 text-success"
-            : testResult.code === "no_channels"
-              ? "border-warning/40 bg-warning/10 text-warning"
-              : "border-destructive/40 bg-destructive/10 text-destructive";
-          const hint =
-            testResult.code === "invalid_url"
-              ? "Check the Server URL — it must start with http:// or https:// and include the host/port."
-              : testResult.code === "unreachable"
-                ? "The server didn't respond. Check the URL, port, and whether the provider is online."
-                : testResult.code === "auth_failed"
-                  ? "The provider rejected the credentials. Double-check the username and password."
-                  : testResult.code === "no_channels"
-                    ? "Credentials are valid, but this subscription exposes no live channels."
-                    : testResult.code === "upstream_error"
-                      ? "The provider returned an unexpected response. Try again or contact the provider."
-                      : null;
-          return (
-            <div
-              role="status"
-              aria-live="polite"
-              data-testid="tv-test-result"
-              data-code={testResult.code}
-              className={`flex items-start gap-2 rounded-md border p-3 text-xs ${tone}`}
-            >
-              <Icon className="mt-0.5 h-4 w-4 shrink-0" />
-              <div className="min-w-0 flex-1">
-                <div className="font-semibold">{testResult.headline}</div>
-                <div className="mt-0.5 break-words text-[11px] opacity-90">
-                  {testResult.detail}
-                </div>
-                {hint && (
-                  <div className="mt-1 text-[11px] opacity-80">{hint}</div>
-                )}
-                {typeof testResult.channelCount === "number" && (
-                  <div className="mt-1 text-[11px] opacity-80">
-                    Live channels detected: {testResult.channelCount}
+                      ? "Credentials are valid, but this subscription exposes no live channels."
+                      : testResult.code === "upstream_error"
+                        ? "The provider returned an unexpected response. Try again or contact the provider."
+                        : null;
+            return (
+              <div
+                role="status"
+                aria-live="polite"
+                data-testid="tv-test-result"
+                data-code={testResult.code}
+                className={`flex items-start gap-2 rounded-md border p-3 text-xs ${tone}`}
+              >
+                <Icon className="mt-0.5 h-4 w-4 shrink-0" />
+                <div className="min-w-0 flex-1">
+                  <div className="font-semibold">{testResult.headline}</div>
+                  <div className="mt-0.5 break-words text-[11px] opacity-90">
+                    {testResult.detail}
                   </div>
-                )}
+                  {hint && <div className="mt-1 text-[11px] opacity-80">{hint}</div>}
+                  {typeof testResult.channelCount === "number" && (
+                    <div className="mt-1 text-[11px] opacity-80">
+                      Live channels detected: {testResult.channelCount}
+                    </div>
+                  )}
+                </div>
               </div>
-            </div>
-          );
-        })()}
+            );
+          })()}
         {tv?.id && form.connection_type !== "hls" && (
           <Button
             size="sm"
@@ -811,7 +802,9 @@ function TvConfigCard({
           </div>
           <div
             className={`flex items-center gap-3 rounded-md border bg-arena-panel-2/60 p-2 ${
-              shownErrors.selected_channel_id || shownErrors.selected_channel_name || shownErrors.selected_channel_logo
+              shownErrors.selected_channel_id ||
+              shownErrors.selected_channel_name ||
+              shownErrors.selected_channel_logo
                 ? "border-destructive"
                 : "border-arena-border"
             }`}
@@ -835,7 +828,7 @@ function TvConfigCard({
               <div className="truncate text-xs text-muted-foreground">
                 {form.selected_channel_id
                   ? `${form.selected_channel_id}${form.current_stream_url ? " · stream ready" : " · no stream"}`
-                  : "Pick from iptv-org or type an Xtream channel below"}
+                  : "Pick from the global provider or type an Xtream channel below"}
               </div>
             </div>
             <Button size="sm" variant="arenaOutline" onClick={() => setPickerOpen(true)}>
@@ -976,9 +969,6 @@ function TvConfigCard({
         />
       )}
 
-
-
-
       <div className="mt-4 flex flex-wrap gap-2">
         <Button size="sm" variant="arenaOutline" onClick={() => setPickerOpen(true)}>
           <Search className="mr-1 h-3.5 w-3.5" /> Pick channel
@@ -1013,7 +1003,11 @@ function TvConfigCard({
         </Button>
       </div>
 
-      <IptvChannelPicker open={pickerOpen} onOpenChange={setPickerOpen} onPick={applyPickedChannel} />
+      <IptvChannelPicker
+        open={pickerOpen}
+        onOpenChange={setPickerOpen}
+        onPick={applyPickedChannel}
+      />
       <XtreamChannelPicker
         open={xtreamPickerOpen}
         onOpenChange={setXtreamPickerOpen}
@@ -1026,7 +1020,6 @@ function TvConfigCard({
         url={form.current_stream_url}
         title={form.selected_channel_name || form.display_name || `TV ${slot}`}
       />
-
     </div>
   );
 }
@@ -1067,9 +1060,7 @@ function Field({
             : "border-arena-border focus:border-primary"
         }`}
       />
-      {invalid ? (
-        <span className="mt-1 block text-xs text-destructive">{error}</span>
-      ) : null}
+      {invalid ? <span className="mt-1 block text-xs text-destructive">{error}</span> : null}
     </label>
   );
 }
@@ -1207,7 +1198,9 @@ function LoungeMatchCard({ lounge }: { lounge: Lounge }) {
           <select
             className={`${inputCls} mt-1`}
             value={form.match_status}
-            onChange={(e) => set("match_status", e.target.value as LoungeMatchInput["match_status"])}
+            onChange={(e) =>
+              set("match_status", e.target.value as LoungeMatchInput["match_status"])
+            }
           >
             {MATCH_STATUSES.map((s) => (
               <option key={s} value={s}>
@@ -1234,10 +1227,7 @@ function LoungeMatchCard({ lounge }: { lounge: Lounge }) {
             className={`${inputCls} mt-1`}
             value={dtLocal}
             onChange={(e) =>
-              set(
-                "match_starts_at",
-                e.target.value ? new Date(e.target.value).toISOString() : null,
-              )
+              set("match_starts_at", e.target.value ? new Date(e.target.value).toISOString() : null)
             }
           />
         </label>
@@ -1349,4 +1339,3 @@ function LoungeMatchCard({ lounge }: { lounge: Lounge }) {
     </div>
   );
 }
-

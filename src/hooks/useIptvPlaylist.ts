@@ -1,5 +1,5 @@
-import { useSyncExternalStore } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useEffect, useRef, useSyncExternalStore } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { parseM3U, type IptvChannel } from "@/lib/m3u-parser";
 
 const PROXY_PATH = "/api/public/iptv/playlist";
@@ -86,16 +86,45 @@ async function fetchPlaylist(url: string): Promise<IptvChannel[]> {
 }
 
 import { useServerFn } from "@tanstack/react-start";
-import { getPublicIptvChannels } from "@/lib/iptv-provider.functions";
+import { getPublicIptvChannels, refreshPublicIptvCatalog } from "@/lib/iptv-provider.functions";
+
+type CompactCatalog = { v: 1; g: unknown[]; c: unknown[][] };
+
+function deserializeIptvCatalog(serialized: string): IptvChannel[] {
+  const parsed = JSON.parse(serialized) as CompactCatalog;
+  if (parsed?.v !== 1 || !Array.isArray(parsed.g) || !Array.isArray(parsed.c)) {
+    throw new Error("Provider returned an invalid channel catalog");
+  }
+  const groups = parsed.g.map((group) => String(group));
+  return parsed.c.map((row) => {
+    if (!Array.isArray(row) || row.length < 4) {
+      throw new Error("Provider returned an invalid channel row");
+    }
+    const groupIndex = Number(row[3]);
+    return {
+      id: String(row[0]),
+      name: String(row[1]),
+      logo: typeof row[2] === "string" && row[2] ? row[2] : null,
+      group: Number.isInteger(groupIndex) && groupIndex >= 0 ? (groups[groupIndex] ?? null) : null,
+      tvgId: null,
+      tvgName: null,
+      url: typeof row[4] === "string" ? row[4] : "",
+    };
+  });
+}
 
 export function useIptvPlaylist(url: string) {
   const getChannelsFn = useServerFn(getPublicIptvChannels);
+  const refreshChannelsFn = useServerFn(refreshPublicIptvCatalog);
+  const queryClient = useQueryClient();
+  const refreshStartedFor = useRef("");
 
-  return useQuery({
+  const query = useQuery({
     queryKey: ["iptv", "playlist", url],
     queryFn: async () => {
       if (url === "global:xtream") {
-        const channels = await getChannelsFn();
+        const serialized = await getChannelsFn();
+        const channels = deserializeIptvCatalog(serialized);
         setStatus(url, { source: "direct", at: Date.now() });
         return channels;
       }
@@ -105,6 +134,22 @@ export function useIptvPlaylist(url: string) {
     staleTime: 5 * 60 * 1000,
     retry: false,
   });
+
+  useEffect(() => {
+    if (url !== "global:xtream" || !query.isSuccess || refreshStartedFor.current === url) return;
+    refreshStartedFor.current = url;
+    void refreshChannelsFn()
+      .then((result) => {
+        if (result.refreshed) {
+          return queryClient.invalidateQueries({ queryKey: ["iptv", "playlist", url] });
+        }
+      })
+      .catch(() => {
+        // The last good catalog remains usable; admins can inspect the sync error.
+      });
+  }, [query.isSuccess, queryClient, refreshChannelsFn, url]);
+
+  return query;
 }
 
 function subscribe(cb: () => void) {

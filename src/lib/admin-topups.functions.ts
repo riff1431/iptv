@@ -42,7 +42,7 @@ const listInput = z
 
 export const adminListTopups = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
-  .inputValidator((d: unknown) => listInput.parse(d ?? {}) ?? {})
+  .validator((d: unknown) => listInput.parse(d ?? {}) ?? {})
   .handler(async ({ data, context }): Promise<AdminTopupRow[]> => {
     await assertAdmin(context);
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
@@ -89,9 +89,7 @@ export const adminListTopups = createServerFn({ method: "POST" })
       amount_cents: r.amount_cents,
       method: r.method,
       payment_method_id: r.payment_method_id,
-      payment_method_label: r.payment_method_id
-        ? pmMap.get(r.payment_method_id) ?? null
-        : null,
+      payment_method_label: r.payment_method_id ? (pmMap.get(r.payment_method_id) ?? null) : null,
       reference: r.reference,
       user_note: r.user_note,
       proof_path: r.proof_path,
@@ -113,7 +111,7 @@ const decideInput = z.object({
 
 export const adminApproveTopup = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
-  .inputValidator((d: unknown) => decideInput.parse(d))
+  .validator((d: unknown) => decideInput.parse(d))
   .handler(async ({ data, context }) => {
     await assertAdmin(context);
     const { error } = await context.supabase.rpc("approve_topup_request", {
@@ -126,7 +124,7 @@ export const adminApproveTopup = createServerFn({ method: "POST" })
 
 export const adminRejectTopup = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
-  .inputValidator((d: unknown) => decideInput.parse(d))
+  .validator((d: unknown) => decideInput.parse(d))
   .handler(async ({ data, context }) => {
     await assertAdmin(context);
     const { error } = await context.supabase.rpc("reject_topup_request", {
@@ -139,7 +137,7 @@ export const adminRejectTopup = createServerFn({ method: "POST" })
 
 export const adminGetTopupProofUrl = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
-  .inputValidator((d: unknown) => z.object({ id: z.string().uuid() }).parse(d))
+  .validator((d: unknown) => z.object({ id: z.string().uuid() }).parse(d))
   .handler(async ({ data, context }): Promise<{ url: string | null }> => {
     await assertAdmin(context);
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
@@ -196,7 +194,7 @@ function emptyTotals(): AdminTopupHistoryTotals {
 
 export const adminListTopupHistory = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
-  .inputValidator((d: unknown) => historyInput.parse(d ?? {}))
+  .validator((d: unknown) => historyInput.parse(d ?? {}))
   .handler(async ({ data, context }): Promise<AdminTopupHistoryResult> => {
     await assertAdmin(context);
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
@@ -224,7 +222,13 @@ export const adminListTopupHistory = createServerFn({ method: "POST" })
       });
       userIdFilter = Array.from(ids);
       if (userIdFilter.length === 0) {
-        return { rows: [], total: 0, page: data.page, pageSize: data.pageSize, totals: emptyTotals() };
+        return {
+          rows: [],
+          total: 0,
+          page: data.page,
+          pageSize: data.pageSize,
+          totals: emptyTotals(),
+        };
       }
     }
 
@@ -244,26 +248,22 @@ export const adminListTopupHistory = createServerFn({ method: "POST" })
     const from = (data.page - 1) * data.pageSize;
     const to = from + data.pageSize - 1;
 
-    const totalsQuery = supabaseAdmin
-      .from("topup_requests")
-      .select("status, amount_cents");
+    const totalsQuery = supabaseAdmin.from("topup_requests").select("status, amount_cents");
     let tq: any = totalsQuery;
     if (userIdFilter) tq = tq.in("user_id", userIdFilter);
     if (data.from) tq = tq.gte("created_at", data.from);
     if (data.to) tq = tq.lte("created_at", data.to);
 
-    const [
-      { data: rows, error, count },
-      { data: totalsRows, error: totalsErr },
-    ] = await Promise.all([
-      buildQuery(
-        "id, user_id, amount_cents, method, payment_method_id, reference, user_note, proof_path, status, admin_note, processed_at, processed_by, created_at, updated_at",
-        "exact",
-      )
-        .order("created_at", { ascending: false })
-        .range(from, to),
-      tq.limit(10000),
-    ]);
+    const [{ data: rows, error, count }, { data: totalsRows, error: totalsErr }] =
+      await Promise.all([
+        buildQuery(
+          "id, user_id, amount_cents, method, payment_method_id, reference, user_note, proof_path, status, admin_note, processed_at, processed_by, created_at, updated_at",
+          "exact",
+        )
+          .order("created_at", { ascending: false })
+          .range(from, to),
+        tq.limit(10000),
+      ]);
 
     if (error) throw new Error(error.message);
     if (totalsErr) throw new Error(totalsErr.message);
@@ -309,9 +309,7 @@ export const adminListTopupHistory = createServerFn({ method: "POST" })
         amount_cents: r.amount_cents,
         method: r.method,
         payment_method_id: r.payment_method_id,
-        payment_method_label: r.payment_method_id
-          ? pmMap.get(r.payment_method_id) ?? null
-          : null,
+        payment_method_label: r.payment_method_id ? (pmMap.get(r.payment_method_id) ?? null) : null,
         reference: r.reference,
         user_note: r.user_note,
         proof_path: r.proof_path,
@@ -348,7 +346,7 @@ export interface AdminTopupExportResult {
 
 export const adminExportTopupHistory = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
-  .inputValidator((d: unknown) => exportInput.parse(d ?? {}))
+  .validator((d: unknown) => exportInput.parse(d ?? {}))
   .handler(async ({ data, context }): Promise<AdminTopupExportResult> => {
     await assertAdmin(context);
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
@@ -426,9 +424,7 @@ export const adminExportTopupHistory = createServerFn({ method: "POST" })
         amount_cents: r.amount_cents,
         method: r.method,
         payment_method_id: r.payment_method_id,
-        payment_method_label: r.payment_method_id
-          ? pmMap.get(r.payment_method_id) ?? null
-          : null,
+        payment_method_label: r.payment_method_id ? (pmMap.get(r.payment_method_id) ?? null) : null,
         reference: r.reference,
         user_note: r.user_note,
         proof_path: r.proof_path,
@@ -445,5 +441,3 @@ export const adminExportTopupHistory = createServerFn({ method: "POST" })
       limit,
     };
   });
-
-

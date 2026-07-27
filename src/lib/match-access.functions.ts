@@ -33,11 +33,7 @@ type LooseSession = {
   paid_at: string | null;
 };
 
-async function loadAccess(
-  supabase: Supa,
-  userId: string,
-  matchId: string,
-): Promise<MatchAccess> {
+async function loadAccess(supabase: Supa, userId: string, matchId: string): Promise<MatchAccess> {
   const [match, session, balance] = await Promise.all([
     supabase
       .from("matches")
@@ -60,8 +56,7 @@ async function loadAccess(
   const m = match.data as unknown as LooseMatch;
   const now = Date.now();
   const s = session.data as unknown as LooseSession | null;
-  const active =
-    !!s && new Date(s.expires_at).getTime() > now && s.status !== "expired";
+  const active = !!s && new Date(s.expires_at).getTime() > now && s.status !== "expired";
 
   return {
     matchId,
@@ -78,7 +73,7 @@ async function loadAccess(
 /** Current access snapshot for the signed-in user. */
 export const getMatchAccess = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
-  .inputValidator((d) => matchIdInput.parse(d))
+  .validator((d) => matchIdInput.parse(d))
   .handler(async ({ data, context }) =>
     loadAccess(context.supabase as unknown as Supa, context.userId, data.matchId),
   );
@@ -89,7 +84,7 @@ export const getMatchAccess = createServerFn({ method: "POST" })
  */
 export const enterMatch = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
-  .inputValidator((d) => matchIdInput.parse(d))
+  .validator((d) => matchIdInput.parse(d))
   .handler(async ({ data, context }) => {
     const supabase = context.supabase as unknown as Supa;
     const existing = await loadAccess(supabase, context.userId, data.matchId);
@@ -101,16 +96,14 @@ export const enterMatch = createServerFn({ method: "POST" })
       Date.now() + (isFree ? 60 * 60 * 4 : previewSecs) * 1000,
     ).toISOString();
 
-    const { error } = await (supabase as unknown as SupabaseClient)
-      .from("match_sessions")
-      .insert({
-        user_id: context.userId,
-        match_id: data.matchId,
-        status: isFree ? "paid" : "preview",
-        expires_at: expiresAt,
-        paid_at: isFree ? new Date().toISOString() : null,
-        amount_cents: 0,
-      });
+    const { error } = await (supabase as unknown as SupabaseClient).from("match_sessions").insert({
+      user_id: context.userId,
+      match_id: data.matchId,
+      status: isFree ? "paid" : "preview",
+      expires_at: expiresAt,
+      paid_at: isFree ? new Date().toISOString() : null,
+      amount_cents: 0,
+    });
     if (error) throw new Error(error.message);
 
     return loadAccess(supabase, context.userId, data.matchId);
@@ -122,12 +115,11 @@ export const enterMatch = createServerFn({ method: "POST" })
  */
 export const payMatchToStay = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
-  .inputValidator((d) => matchIdInput.parse(d))
+  .validator((d) => matchIdInput.parse(d))
   .handler(async ({ data, context }) => {
     const supabase = context.supabase as unknown as Supa;
     const access = await loadAccess(supabase, context.userId, data.matchId);
-    if (!access.sessionId)
-      throw new Error("No active session — enter the match first");
+    if (!access.sessionId) throw new Error("No active session — enter the match first");
     if (access.status === "paid") return access;
     if (access.walletBalanceCents < access.entryFeeCents) {
       throw new Error(

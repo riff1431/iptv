@@ -59,36 +59,47 @@ export type PublicLounge = {
   isActive: boolean;
   isFeatured: boolean;
   coverImageUrl: string | null;
+  createdAt: string;
   match: PublicMatch | null;
   tvs: PublicTv[];
 };
 
 /** Server-side publishable client (no session, no localStorage). */
 function serverPublic() {
-  return createClient<Database>(
-    process.env.SUPABASE_URL!,
-    process.env.SUPABASE_PUBLISHABLE_KEY!,
-    { auth: { storage: undefined, persistSession: false, autoRefreshToken: false } },
-  );
-}
-
-/** Stable pseudo-random baseline so cards don't all show identical viewer counts. */
-function baselineViewers(id: string): number {
-  let h = 5381;
-  for (let i = 0; i < id.length; i++) h = ((h << 5) + h + id.charCodeAt(i)) | 0;
-  return 200 + (Math.abs(h) % 3000);
+  return createClient<Database>(process.env.SUPABASE_URL!, process.env.SUPABASE_PUBLISHABLE_KEY!, {
+    auth: { storage: undefined, persistSession: false, autoRefreshToken: false },
+  });
 }
 
 type LoungeRow = Database["public"]["Tables"]["lounges"]["Row"];
 type TvRow = Database["public"]["Tables"]["tvs"]["Row"];
 type PublicTvRow = Pick<
   TvRow,
-  | "id" | "lounge_id" | "slot" | "display_name" | "provider_name"
-  | "connection_type" | "selected_channel_id" | "selected_channel_name"
-  | "selected_channel_logo" | "enabled" | "status" | "last_status_message"
-  | "last_checked_at" | "created_at" | "updated_at" | "sport" | "matchup"
-  | "home_label" | "away_label" | "home_score" | "away_score" | "period_label"
-  | "clock_label" | "accent_home" | "accent_away"
+  | "id"
+  | "lounge_id"
+  | "slot"
+  | "display_name"
+  | "provider_name"
+  | "connection_type"
+  | "selected_channel_id"
+  | "selected_channel_name"
+  | "selected_channel_logo"
+  | "enabled"
+  | "status"
+  | "last_status_message"
+  | "last_checked_at"
+  | "created_at"
+  | "updated_at"
+  | "sport"
+  | "matchup"
+  | "home_label"
+  | "away_label"
+  | "home_score"
+  | "away_score"
+  | "period_label"
+  | "clock_label"
+  | "accent_home"
+  | "accent_away"
 >;
 
 /**
@@ -99,7 +110,7 @@ type PublicTvRow = Pick<
 const TV_SAFE_COLUMNS =
   "id, lounge_id, slot, display_name, provider_name, connection_type, selected_channel_id, selected_channel_name, selected_channel_logo, enabled, status, last_status_message, last_checked_at, created_at, updated_at, sport, matchup, home_label, away_label, home_score, away_score, period_label, clock_label, accent_home, accent_away";
 
-function mapLounge(row: LoungeRow, tvs: PublicTvRow[]): PublicLounge {
+function mapLounge(row: LoungeRow, tvs: PublicTvRow[], viewerCount: number): PublicLounge {
   return {
     id: row.id,
     slug: row.slug,
@@ -108,27 +119,29 @@ function mapLounge(row: LoungeRow, tvs: PublicTvRow[]): PublicLounge {
     entryFeeCents: row.entry_fee_cents,
     freePreviewSeconds: row.free_preview_seconds,
     vibe: row.vibe ?? "Themed",
-    viewerCount: baselineViewers(row.id),
+    viewerCount,
     isActive: row.is_active,
     isFeatured: row.is_featured,
     coverImageUrl: row.cover_image_url,
-    match: row.match_title && row.match_title.trim()
-      ? {
-          title: row.match_title,
-          sport: row.match_sport,
-          homeLabel: row.match_home_label,
-          awayLabel: row.match_away_label,
-          homeScore: row.match_home_score ?? 0,
-          awayScore: row.match_away_score ?? 0,
-          periodLabel: row.match_period_label,
-          clockLabel: row.match_clock_label,
-          status: (row.match_status ?? "off") as PublicMatch["status"],
-          startsAt: row.match_starts_at,
-          thumbnailUrl: row.match_thumbnail_url,
-          accentHome: row.match_accent_home,
-          accentAway: row.match_accent_away,
-        }
-      : null,
+    createdAt: row.created_at,
+    match:
+      row.match_title && row.match_title.trim()
+        ? {
+            title: row.match_title,
+            sport: row.match_sport,
+            homeLabel: row.match_home_label,
+            awayLabel: row.match_away_label,
+            homeScore: row.match_home_score ?? 0,
+            awayScore: row.match_away_score ?? 0,
+            periodLabel: row.match_period_label,
+            clockLabel: row.match_clock_label,
+            status: (row.match_status ?? "off") as PublicMatch["status"],
+            startsAt: row.match_starts_at,
+            thumbnailUrl: row.match_thumbnail_url,
+            accentHome: row.match_accent_home,
+            accentAway: row.match_accent_away,
+          }
+        : null,
     tvs: tvs
       .slice()
       .sort((a, b) => a.slot - b.slot)
@@ -164,16 +177,44 @@ export const listPublicLounges = createServerFn({ method: "GET" }).handler(async
   if (error) throw new Error(error.message);
 
   const ids = (lounges ?? []).map((l) => l.id);
-  const { data: tvs } = ids.length
-    ? await supa.from("tvs").select(TV_SAFE_COLUMNS).in("lounge_id", ids).eq("enabled", true).order("slot")
-    : { data: [] as PublicTvRow[] };
+  const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+  const since = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+  const [{ data: tvs }, sessionRes] = await Promise.all([
+    ids.length
+      ? supa
+          .from("tvs")
+          .select(TV_SAFE_COLUMNS)
+          .in("lounge_id", ids)
+          .eq("enabled", true)
+          .order("slot")
+      : Promise.resolve({ data: [] as PublicTvRow[] }),
+    ids.length
+      ? supabaseAdmin
+          .from("lounge_sessions")
+          .select("lounge_id, user_id")
+          .in("lounge_id", ids)
+          .gte("entered_at", since)
+      : Promise.resolve({ data: [] as Array<{ lounge_id: string; user_id: string }> }),
+  ]);
+  const viewersByLounge = new Map<string, Set<string>>();
+  for (const session of sessionRes.data ?? []) {
+    const viewers = viewersByLounge.get(session.lounge_id) ?? new Set<string>();
+    viewers.add(session.user_id);
+    viewersByLounge.set(session.lounge_id, viewers);
+  }
 
-  return (lounges ?? []).map((l) => mapLounge(l, (tvs ?? []).filter((t) => t.lounge_id === l.id)));
+  return (lounges ?? []).map((l) =>
+    mapLounge(
+      l,
+      (tvs ?? []).filter((t) => t.lounge_id === l.id),
+      viewersByLounge.get(l.id)?.size ?? 0,
+    ),
+  );
 });
 
 /** One lounge by slug (public). Returns null when missing/inactive. */
 export const getPublicLoungeBySlug = createServerFn({ method: "POST" })
-  .inputValidator((d) => z.object({ slug: z.string().min(1).max(120) }).parse(d))
+  .validator((d) => z.object({ slug: z.string().min(1).max(120) }).parse(d))
   .handler(async ({ data }): Promise<PublicLounge | null> => {
     const supa = serverPublic();
     const { data: l } = await supa
@@ -190,7 +231,14 @@ export const getPublicLoungeBySlug = createServerFn({ method: "POST" })
       .eq("lounge_id", l.id)
       .eq("enabled", true)
       .order("slot");
-    return mapLounge(l, (tvs ?? []) as PublicTvRow[]);
+    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+    const { data: sessions } = await supabaseAdmin
+      .from("lounge_sessions")
+      .select("user_id")
+      .eq("lounge_id", l.id)
+      .gte("entered_at", new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString());
+    const viewerCount = new Set((sessions ?? []).map((session) => session.user_id)).size;
+    return mapLounge(l, (tvs ?? []) as PublicTvRow[], viewerCount);
   });
 
 // ---------- Query options helpers ----------

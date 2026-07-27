@@ -82,7 +82,6 @@ export const getSiteSettings = createServerFn({ method: "GET" }).handler(
   },
 );
 
-
 const urlOrEmpty = z
   .string()
   .trim()
@@ -110,17 +109,13 @@ const updateInput = z.object({
 
 export const updateSiteSettings = createServerFn({ method: "POST" })
   .middleware([requireAdminServer])
-  .inputValidator((data: unknown) => updateInput.parse(data))
+  .validator((data: unknown) => updateInput.parse(data))
   .handler(async ({ data, context }): Promise<SiteSettings> => {
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const db = supabaseAdmin as any;
 
-    const { data: prev } = await db
-      .from("site_settings")
-      .select("*")
-      .eq("id", true)
-      .maybeSingle();
+    const { data: prev } = await db.from("site_settings").select("*").eq("id", true).maybeSingle();
 
     const { data: row, error } = await db
       .from("site_settings")

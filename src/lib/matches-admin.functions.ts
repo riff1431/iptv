@@ -44,7 +44,6 @@ const slotSchema = z
     path: ["channel_name"],
   });
 
-
 export const listMatchesAdmin = createServerFn({ method: "GET" })
   .middleware([requireAdminServer])
   .handler(async ({ context }) => {
@@ -66,7 +65,7 @@ export const listMatchesAdmin = createServerFn({ method: "GET" })
 
 export const upsertMatch = createServerFn({ method: "POST" })
   .middleware([requireAdminServer])
-  .inputValidator((d) => upsertSchema.parse(d))
+  .validator((d) => upsertSchema.parse(d))
   .handler(async ({ data, context }) => {
     const row = {
       ...data,
@@ -84,7 +83,7 @@ export const upsertMatch = createServerFn({ method: "POST" })
 
 export const deleteMatch = createServerFn({ method: "POST" })
   .middleware([requireAdminServer])
-  .inputValidator((d) => z.object({ id: z.string().uuid() }).parse(d))
+  .validator((d) => z.object({ id: z.string().uuid() }).parse(d))
   .handler(async ({ data, context }) => {
     const { error } = await context.supabase.from("matches").delete().eq("id", data.id);
     if (error) throw new Error(error.message);
@@ -93,7 +92,7 @@ export const deleteMatch = createServerFn({ method: "POST" })
 
 export const upsertMatchSlot = createServerFn({ method: "POST" })
   .middleware([requireAdminServer])
-  .inputValidator((d) => slotSchema.parse(d))
+  .validator((d) => slotSchema.parse(d))
   .handler(async ({ data, context }) => {
     // Defense in depth: verify slot fits within the parent match's slot_count
     const { data: match, error: mErr } = await context.supabase
@@ -104,9 +103,7 @@ export const upsertMatchSlot = createServerFn({ method: "POST" })
     if (mErr) throw new Error(mErr.message);
     if (!match) throw new Error("Match not found");
     if (data.slot > match.slot_count) {
-      throw new Error(
-        `Slot ${data.slot} exceeds this match's slot count (${match.slot_count})`,
-      );
+      throw new Error(`Slot ${data.slot} exceeds this match's slot count (${match.slot_count})`);
     }
 
     const { data: saved, error } = await context.supabase
@@ -118,10 +115,9 @@ export const upsertMatchSlot = createServerFn({ method: "POST" })
     return saved;
   });
 
-
 export const swapMatchSlots = createServerFn({ method: "POST" })
   .middleware([requireAdminServer])
-  .inputValidator((d) =>
+  .validator((d) =>
     z
       .object({
         match_id: z.string().uuid(),

@@ -57,7 +57,6 @@ const sendInput = z.object({
   matchId: z.string().uuid().optional(),
 });
 
-
 type RawRow = {
   id: string;
   user_id: string;
@@ -74,7 +73,7 @@ type RawRow = {
 
 export const listTips = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
-  .inputValidator((d: unknown) => listInput.parse(d ?? {}))
+  .validator((d: unknown) => listInput.parse(d ?? {}))
   .handler(async ({ data, context }): Promise<TipsPage> => {
     const { supabase, userId } = context;
 
@@ -151,8 +150,15 @@ export const listTips = createServerFn({ method: "POST" })
     if ("error" in profilesRes && profilesRes.error) throw new Error(profilesRes.error.message);
     if ("error" in loungesRes && loungesRes.error) throw new Error(loungesRes.error.message);
 
-    const profileMap = new Map<string, { id: string; display_name: string | null; avatar_url: string | null }>();
-    for (const p of (profilesRes.data ?? []) as Array<{ id: string; display_name: string | null; avatar_url: string | null }>) {
+    const profileMap = new Map<
+      string,
+      { id: string; display_name: string | null; avatar_url: string | null }
+    >();
+    for (const p of (profilesRes.data ?? []) as Array<{
+      id: string;
+      display_name: string | null;
+      avatar_url: string | null;
+    }>) {
       profileMap.set(p.id, p);
     }
     const loungeMap = new Map<string, { id: string; slug: string; name: string }>();
@@ -168,8 +174,10 @@ export const listTips = createServerFn({ method: "POST" })
         amount_cents: r.amount_cents,
         memo: r.memo,
         created_at: r.created_at,
-        counterparty: cpId ? profileMap.get(cpId) ?? { id: cpId, display_name: null, avatar_url: null } : null,
-        lounge: r.lounge_id ? loungeMap.get(r.lounge_id) ?? null : null,
+        counterparty: cpId
+          ? (profileMap.get(cpId) ?? { id: cpId, display_name: null, avatar_url: null })
+          : null,
+        lounge: r.lounge_id ? (loungeMap.get(r.lounge_id) ?? null) : null,
         chat_message_id: r.chat_message_id,
         direct_message_id: r.direct_message_id,
         external_ref: r.external_ref,
@@ -208,7 +216,7 @@ export const listTips = createServerFn({ method: "POST" })
 
 export const sendTip = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
-  .inputValidator((d: unknown) => sendInput.parse(d))
+  .validator((d: unknown) => sendInput.parse(d))
   .handler(async ({ data, context }): Promise<{ debitId: string; creditId: string }> => {
     const { supabase, userId } = context;
     if (data.recipientUserId === userId) throw new Error("You cannot tip yourself");
@@ -254,7 +262,6 @@ export const sendTip = createServerFn({ method: "POST" })
       _direct_message_id: data.directMessageId ?? undefined,
       _match_id: data.matchId ?? undefined,
     });
-
 
     if (error) throw new Error(error.message);
     const row = Array.isArray(rows) ? rows[0] : rows;

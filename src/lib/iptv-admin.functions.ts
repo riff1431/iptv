@@ -20,7 +20,6 @@ function redactUrlCreds(input: string): string {
   }
 }
 
-
 export interface IptvChannelDTO {
   id: string;
   name: string;
@@ -43,19 +42,13 @@ const testInput = z.object({
  */
 export const testIptvConnection = createServerFn({ method: "POST" })
   .middleware([requireAdminServer])
-  .inputValidator((d: unknown) => testInput.parse(d))
+  .validator((d: unknown) => testInput.parse(d))
   .handler(
     async ({
       data,
     }): Promise<{
       ok: boolean;
-      code:
-        | "ok"
-        | "invalid_url"
-        | "unreachable"
-        | "auth_failed"
-        | "no_channels"
-        | "upstream_error";
+      code: "ok" | "invalid_url" | "unreachable" | "auth_failed" | "no_channels" | "upstream_error";
       message: string;
       channelCount?: number;
     }> => {
@@ -84,7 +77,7 @@ const fetchInput = z.object({ tvId: z.string().uuid() });
  */
 export const fetchIptvChannelsForTv = createServerFn({ method: "POST" })
   .middleware([requireAdminServer])
-  .inputValidator((d: unknown) => fetchInput.parse(d))
+  .validator((d: unknown) => fetchInput.parse(d))
   .handler(async ({ data }): Promise<IptvChannelDTO[]> => {
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
     const { fetchChannels } = await import("@/lib/iptv-client.server");
@@ -116,11 +109,8 @@ export const fetchIptvChannelsForTv = createServerFn({ method: "POST" })
             `M3U links commonly expire or rotate their embedded credentials.`,
         );
       }
-      throw new Error(
-        `IPTV fetch failed for TV ${tv.id}${who}.\nURL: ${safeUrl}\n${raw}`,
-      );
+      throw new Error(`IPTV fetch failed for TV ${tv.id}${who}.\nURL: ${safeUrl}\n${raw}`);
     });
-
 
     // Upsert into cache. iptv_channels_cache columns:
     // (tv_id, channel_id, name, logo, group_title, updated_at)
@@ -159,7 +149,7 @@ const previewInput = z.object({
  */
 export const getChannelPreviewUrl = createServerFn({ method: "POST" })
   .middleware([requireAdminServer])
-  .inputValidator((d: unknown) => previewInput.parse(d))
+  .validator((d: unknown) => previewInput.parse(d))
   .handler(async ({ data }): Promise<{ url: string }> => {
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
     const { xtreamStreamUrl } = await import("@/lib/iptv-client.server");
@@ -193,7 +183,6 @@ export const getChannelPreviewUrl = createServerFn({ method: "POST" })
     );
   });
 
-
 const saveInput = z.object({
   id: z.string().uuid().optional(),
   lounge_id: z.string().uuid(),
@@ -217,7 +206,7 @@ const saveInput = z.object({
  */
 export const saveTv = createServerFn({ method: "POST" })
   .middleware([requireAdminServer])
-  .inputValidator((d: unknown) => saveInput.parse(d))
+  .validator((d: unknown) => saveInput.parse(d))
   .handler(async ({ data }) => {
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
     const { encryptSecret } = await import("@/lib/iptv-crypto.server");

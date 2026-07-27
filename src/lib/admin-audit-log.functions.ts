@@ -2,13 +2,7 @@ import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 import { requireAdminServer } from "@/lib/admin-guard";
 
-type JsonValue =
-  | string
-  | number
-  | boolean
-  | null
-  | { [k: string]: JsonValue }
-  | JsonValue[];
+type JsonValue = string | number | boolean | null | { [k: string]: JsonValue } | JsonValue[];
 
 export interface AuditLogRow {
   id: string;
@@ -46,8 +40,7 @@ const queryInput = z.object({
   pageSize: z.number().int().min(5).max(100).default(25),
 });
 
-const UUID_RE =
-  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 function escapeIlike(v: string) {
   // Escape %, _, and \ for use inside PostgREST ilike patterns.
@@ -56,11 +49,9 @@ function escapeIlike(v: string) {
 
 export const queryAdminAuditLog = createServerFn({ method: "POST" })
   .middleware([requireAdminServer])
-  .inputValidator((data: unknown) => queryInput.parse(data ?? {}))
+  .validator((data: unknown) => queryInput.parse(data ?? {}))
   .handler(async ({ data }): Promise<AuditLogPage> => {
-    const { supabaseAdmin } = await import(
-      "@/integrations/supabase/client.server"
-    );
+    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
 
     let q = supabaseAdmin
       .from("admin_audit_log")
@@ -114,9 +105,7 @@ export const queryAdminAuditLog = createServerFn({ method: "POST" })
 export const getAdminAuditFacets = createServerFn({ method: "GET" })
   .middleware([requireAdminServer])
   .handler(async (): Promise<AuditLogFacets> => {
-    const { supabaseAdmin } = await import(
-      "@/integrations/supabase/client.server"
-    );
+    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
     // Pull recent 1000 entries to build facet options — good enough for a UI dropdown.
     const { data, error } = await supabaseAdmin
       .from("admin_audit_log")

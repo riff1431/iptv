@@ -13,8 +13,7 @@ export interface AdminQuickDare {
   updated_at: string;
 }
 
-const SELECT_COLS =
-  "id, label, icon, price_cents, sort_order, is_active, created_at, updated_at";
+const SELECT_COLS = "id, label, icon, price_cents, sort_order, is_active, created_at, updated_at";
 
 /** List every dare (active + inactive) for the admin console. */
 export const listQuickDaresForAdmin = createServerFn({ method: "GET" })
@@ -39,7 +38,7 @@ const dareInput = z.object({
 
 export const createQuickDare = createServerFn({ method: "POST" })
   .middleware([requireAdminServer])
-  .inputValidator((data: unknown) => dareInput.parse(data))
+  .validator((data: unknown) => dareInput.parse(data))
   .handler(async ({ data, context }): Promise<AdminQuickDare> => {
     // Default sort_order = max + 10 so new items land at the bottom.
     let sortOrder = data.sort_order;
@@ -79,7 +78,7 @@ const updateInput = z.object({
 
 export const updateQuickDare = createServerFn({ method: "POST" })
   .middleware([requireAdminServer])
-  .inputValidator((data: unknown) => updateInput.parse(data))
+  .validator((data: unknown) => updateInput.parse(data))
   .handler(async ({ data, context }): Promise<AdminQuickDare> => {
     const { id, ...patch } = data;
     if (Object.keys(patch).length === 0) {
@@ -99,12 +98,9 @@ const deleteInput = z.object({ id: z.string().uuid() });
 
 export const deleteQuickDare = createServerFn({ method: "POST" })
   .middleware([requireAdminServer])
-  .inputValidator((data: unknown) => deleteInput.parse(data))
+  .validator((data: unknown) => deleteInput.parse(data))
   .handler(async ({ data, context }): Promise<{ id: string }> => {
-    const { error } = await context.supabase
-      .from("quick_dares")
-      .delete()
-      .eq("id", data.id);
+    const { error } = await context.supabase.from("quick_dares").delete().eq("id", data.id);
     if (error) throw new Error(error.message);
     return { id: data.id };
   });
@@ -116,7 +112,7 @@ const reorderInput = z.object({
 /** Reorder the dares by rewriting sort_order in the order of the supplied ids. */
 export const reorderQuickDares = createServerFn({ method: "POST" })
   .middleware([requireAdminServer])
-  .inputValidator((data: unknown) => reorderInput.parse(data))
+  .validator((data: unknown) => reorderInput.parse(data))
   .handler(async ({ data, context }): Promise<AdminQuickDare[]> => {
     // Space out sort_order values by 10 so future single-row moves fit between.
     await Promise.all(

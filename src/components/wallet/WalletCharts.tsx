@@ -15,8 +15,6 @@ import {
 } from "recharts";
 import { TrendingUp, BarChart3, Download, FileText } from "lucide-react";
 import { toast } from "sonner";
-import jsPDF from "jspdf";
-import autoTable from "jspdf-autotable";
 import {
   getWalletAnalytics,
   type WalletAnalyticsRange,
@@ -28,7 +26,6 @@ import {
   WalletDrilldownDialog,
   type WalletDrilldownTarget,
 } from "@/components/wallet/WalletDrilldownDialog";
-
 
 function fmt(cents: number) {
   const sign = cents < 0 ? "-" : "";
@@ -43,9 +40,15 @@ const RANGES: { value: WalletAnalyticsRange; label: string }[] = [
 ];
 
 const SPEND_TYPES: { type: WalletTxType; label: string; color: string; swatch: string }[] = [
-  { type: "debit_lounge_entry", label: "Lounges", color: "rgb(251 191 36)", swatch: "bg-amber-400" },
+  {
+    type: "debit_lounge_entry",
+    label: "Lounges",
+    color: "rgb(251 191 36)",
+    swatch: "bg-amber-400",
+  },
   { type: "debit_match_entry", label: "Matches", color: "rgb(96 165 250)", swatch: "bg-blue-400" },
   { type: "debit_tip", label: "Tips", color: "rgb(232 121 249)", swatch: "bg-fuchsia-400" },
+  { type: "debit_vip_upgrade", label: "VIP", color: "rgb(167 139 250)", swatch: "bg-violet-400" },
 ];
 
 function labelForBucket(key: string, unit: "day" | "week" | "month") {
@@ -86,16 +89,29 @@ type WalletChartsSearch = {
   drillTypes: string;
 };
 
-const ALL_SPEND_TYPES: WalletTxType[] = ["credit", "refund", "debit_lounge_entry", "debit_match_entry", "debit_tip"];
+const ALL_SPEND_TYPES: WalletTxType[] = [
+  "credit",
+  "refund",
+  "debit_lounge_entry",
+  "debit_match_entry",
+  "debit_vip_upgrade",
+  "debit_tip",
+];
 
 function parseSpendCsv(csv: string): Record<WalletTxType, boolean> {
-  const set = new Set(csv.split(",").map((s) => s.trim()).filter(Boolean));
+  const set = new Set(
+    csv
+      .split(",")
+      .map((s) => s.trim())
+      .filter(Boolean),
+  );
   return {
     credit: set.has("credit"),
     refund: set.has("refund"),
     debit_lounge_entry: set.has("debit_lounge_entry"),
     debit_match_entry: set.has("debit_match_entry"),
     debit_tip: set.has("debit_tip"),
+    debit_vip_upgrade: set.has("debit_vip_upgrade"),
   };
 }
 
@@ -199,7 +215,6 @@ export function WalletCharts({ userId }: { userId: string }) {
     });
   }
 
-
   const q = useQuery({
     queryKey: ["wallet", "analytics", userId, range],
     queryFn: () => analyticsFn({ data: { range } }),
@@ -232,7 +247,6 @@ export function WalletCharts({ userId }: { userId: string }) {
     });
   }, [q.data, enabledTypes]);
 
-
   const currentBalance = balanceData.length ? balanceData[balanceData.length - 1].balance : 0;
   const firstBalance = balanceData.length ? balanceData[0].balance : 0;
   const delta = currentBalance - firstBalance;
@@ -242,7 +256,6 @@ export function WalletCharts({ userId }: { userId: string }) {
   );
 
   const rangeLabel = RANGES.find((r) => r.value === range)?.label ?? "";
-
 
   function downloadBlob(filename: string, mime: string, content: string) {
     const blob = new Blob([content], { type: mime });
@@ -272,9 +285,7 @@ export function WalletCharts({ userId }: { userId: string }) {
     lines.push("Balance sparkline");
     lines.push(["Date", "Balance (USD)", "Balance (cents)"].join(","));
     for (const p of q.data.balanceSeries) {
-      lines.push(
-        [csvEscape(p.date), (p.balanceCents / 100).toFixed(2), p.balanceCents].join(","),
-      );
+      lines.push([csvEscape(p.date), (p.balanceCents / 100).toFixed(2), p.balanceCents].join(","));
     }
     lines.push("");
     lines.push("Spending by bucket");
@@ -283,11 +294,7 @@ export function WalletCharts({ userId }: { userId: string }) {
     header.push("Total (USD)");
     lines.push(header.map(csvEscape).join(","));
     for (const b of q.data.spendBuckets) {
-      const row: (string | number)[] = [
-        b.startISO.slice(0, 10),
-        b.endISO.slice(0, 10),
-        b.label,
-      ];
+      const row: (string | number)[] = [b.startISO.slice(0, 10), b.endISO.slice(0, 10), b.label];
       let total = 0;
       for (const s of SPEND_TYPES) {
         const c = enabledTypes[s.type] ? b.byType[s.type] : 0;
@@ -302,8 +309,12 @@ export function WalletCharts({ userId }: { userId: string }) {
     toast.success("Wallet analytics CSV downloaded");
   }
 
-  function exportPDF() {
+  async function exportPDF() {
     if (!q.data) return;
+    const [{ default: jsPDF }, { default: autoTable }] = await Promise.all([
+      import("jspdf"),
+      import("jspdf-autotable"),
+    ]);
     const doc = new jsPDF({ unit: "pt", format: "letter" });
     const now = new Date();
     doc.setFont("helvetica", "bold");
@@ -331,9 +342,11 @@ export function WalletCharts({ userId }: { userId: string }) {
         ["Current balance", fmt(Math.round(currentBalance * 100))],
         ["Balance change", `${delta >= 0 ? "+" : ""}${fmt(Math.round(delta * 100))}`],
         [
-          `Total spending (${SPEND_TYPES.filter((s) => enabledTypes[s.type])
-            .map((s) => s.label)
-            .join(", ") || "none"})`,
+          `Total spending (${
+            SPEND_TYPES.filter((s) => enabledTypes[s.type])
+              .map((s) => s.label)
+              .join(", ") || "none"
+          })`,
           fmt(Math.round(totalSpend * 100)),
         ],
         ["Balance points", String(q.data.balanceSeries.length)],
@@ -402,7 +415,6 @@ export function WalletCharts({ userId }: { userId: string }) {
   return (
     <section className="space-y-3">
       <div className="flex flex-wrap items-center justify-between gap-2">
-
         <div
           role="group"
           aria-label="Analytics range"
@@ -445,9 +457,7 @@ export function WalletCharts({ userId }: { userId: string }) {
                     : "border-arena-border text-muted-foreground hover:text-white"
                 }`}
               >
-                <span
-                  className={`h-2 w-2 rounded-sm ${s.swatch} ${active ? "" : "opacity-40"}`}
-                />
+                <span className={`h-2 w-2 rounded-sm ${s.swatch} ${active ? "" : "opacity-40"}`} />
                 {s.label}
               </button>
             );
@@ -474,7 +484,6 @@ export function WalletCharts({ userId }: { userId: string }) {
         </div>
       </div>
 
-
       <div className="grid gap-4 md:grid-cols-2">
         <div className="arena-card rounded-xl p-4 sm:p-5">
           <ThumbHeader icon={TrendingUp} label="Balance chart" />
@@ -489,9 +498,7 @@ export function WalletCharts({ userId }: { userId: string }) {
             </div>
             <div
               className={`rounded-full px-2 py-0.5 text-[11px] font-bold ${
-                delta >= 0
-                  ? "bg-emerald-500/15 text-emerald-400"
-                  : "bg-rose-500/15 text-rose-400"
+                delta >= 0 ? "bg-emerald-500/15 text-emerald-400" : "bg-rose-500/15 text-rose-400"
               }`}
             >
               {delta >= 0 ? "+" : ""}
@@ -508,7 +515,7 @@ export function WalletCharts({ userId }: { userId: string }) {
                   margin={{ left: 0, right: 8, top: 4, bottom: 0 }}
                   style={{ cursor: "pointer" }}
                   onClick={(e: unknown) => {
-                    const p = (e as { activePayload?: { payload: typeof balanceData[number] }[] })
+                    const p = (e as { activePayload?: { payload: (typeof balanceData)[number] }[] })
                       ?.activePayload?.[0]?.payload;
                     if (p) openBalanceDrill(p);
                   }}
@@ -581,9 +588,12 @@ export function WalletCharts({ userId }: { userId: string }) {
                   margin={{ left: 0, right: 8, top: 4, bottom: 0 }}
                   style={{ cursor: "pointer" }}
                   onClick={(e: unknown) => {
-                    const p = (e as { activePayload?: { payload: typeof spendData[number] }[] })
+                    const p = (e as { activePayload?: { payload: (typeof spendData)[number] }[] })
                       ?.activePayload?.[0]?.payload;
-                    if (p) openSpendDrill(p as unknown as { label: string; startISO: string; endISO: string });
+                    if (p)
+                      openSpendDrill(
+                        p as unknown as { label: string; startISO: string; endISO: string },
+                      );
                   }}
                 >
                   <CartesianGrid

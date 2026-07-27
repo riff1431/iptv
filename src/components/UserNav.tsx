@@ -15,6 +15,7 @@ import {
   Wallet,
   Megaphone,
   Users as UsersIcon,
+  Crown,
 } from "lucide-react";
 
 import { cn } from "@/lib/utils";
@@ -22,6 +23,7 @@ import { useAutoMarkReadOnDeepLink } from "@/lib/wallet-preferences";
 import { useAuth } from "@/hooks/useAuth";
 import { useDirectMessages } from "@/hooks/useDirectMessages";
 import { useProfile } from "@/hooks/useProfile";
+import { useVipStatus } from "@/hooks/useVipStatus";
 import { useNotifications, type Notification } from "@/hooks/useNotifications";
 import {
   DropdownMenu,
@@ -32,12 +34,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipProvider,
-  TooltipTrigger,
-} from "@/components/ui/tooltip";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import {
   AlertDialog,
@@ -73,14 +70,11 @@ function NotificationsPanel({
   onNavigate?: () => void;
 }) {
   const navigate = useNavigate();
-  const { notifications, loading, unreadCount, markAsRead, markAllAsRead } =
-    useNotifications();
+  const { notifications, loading, unreadCount, markAsRead, markAllAsRead } = useNotifications();
   const [walletUnreadOnly, setWalletUnreadOnly] = useState(false);
   const [autoMarkRead, setAutoMarkRead] = useAutoMarkReadOnDeepLink();
 
-  const walletUnreadCount = notifications.filter(
-    (n) => n.kind === "wallet" && !n.read_at,
-  ).length;
+  const walletUnreadCount = notifications.filter((n) => n.kind === "wallet" && !n.read_at).length;
   const visible = walletUnreadOnly
     ? notifications.filter((n) => n.kind === "wallet" && !n.read_at)
     : notifications;
@@ -168,7 +162,6 @@ function NotificationsPanel({
         />
       </label>
 
-
       <ScrollArea className="flex-1">
         {loading ? (
           <div className="grid place-items-center py-10 text-xs text-muted-foreground">
@@ -187,7 +180,6 @@ function NotificationsPanel({
             </div>
           </div>
         ) : (
-
           <ul className="divide-y divide-arena-border" role="list">
             {visible.map((n) => {
               const unread = !n.read_at;
@@ -196,13 +188,25 @@ function NotificationsPanel({
                   case "wallet":
                     return { Icon: Wallet, tint: "text-arena-gold", ring: "bg-arena-gold/15" };
                   case "message":
-                    return { Icon: MessageCircle, tint: "text-arena-cyan", ring: "bg-arena-cyan/15" };
+                    return {
+                      Icon: MessageCircle,
+                      tint: "text-arena-cyan",
+                      ring: "bg-arena-cyan/15",
+                    };
                   case "lounge":
-                    return { Icon: UsersIcon, tint: "text-arena-violet", ring: "bg-arena-violet/15" };
+                    return {
+                      Icon: UsersIcon,
+                      tint: "text-arena-violet",
+                      ring: "bg-arena-violet/15",
+                    };
                   case "admin":
                     return { Icon: Shield, tint: "text-primary", ring: "bg-primary/15" };
                   default:
-                    return { Icon: Megaphone, tint: "text-muted-foreground", ring: "bg-arena-panel" };
+                    return {
+                      Icon: Megaphone,
+                      tint: "text-muted-foreground",
+                      ring: "bg-arena-panel",
+                    };
                 }
               })();
               const { Icon: KindIcon, tint, ring } = kindMeta;
@@ -291,6 +295,8 @@ export function UserNav() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const { displayName, avatarUrl, initial } = useProfile();
+  const { data: vipStatus } = useVipStatus(user?.id);
+  const isVip = vipStatus?.isVip === true;
 
   const confirmSignOut = async () => {
     if (signingOut) return;
@@ -304,7 +310,6 @@ export function UserNav() {
 
       // Verify the session is actually gone before navigating away.
       const deadline = Date.now() + 3000;
-      // eslint-disable-next-line no-constant-condition
       while (true) {
         const { data } = await supabase.auth.getSession();
         if (!data.session) break;
@@ -322,7 +327,6 @@ export function UserNav() {
     }
   };
 
-
   if (!user) {
     // While the initial getUser() is in flight, render a neutral placeholder
     // instead of the "Log In / Create Account" CTAs. Otherwise every soft
@@ -330,10 +334,7 @@ export function UserNav() {
     // looks exactly like an auto-logout.
     if (authLoading) {
       return (
-        <div
-          aria-hidden="true"
-          className="flex items-center gap-2 sm:gap-3"
-        >
+        <div aria-hidden="true" className="flex items-center gap-2 sm:gap-3">
           <div className="h-9 w-20 rounded-lg border border-arena-border bg-arena-panel/40 sm:w-24" />
           <div className="h-9 w-28 rounded-lg bg-arena-panel/40 sm:w-32" />
         </div>
@@ -367,278 +368,287 @@ export function UserNav() {
 
   const email = user.email ?? "";
 
-
   const totalAlertBadge = dmUnread + notifUnread;
 
   return (
     <TooltipProvider delayDuration={150} skipDelayDuration={200}>
-    <div className="flex items-center gap-2 sm:gap-3 lg:gap-4">
-      {/* Wallet chip — visible from sm up */}
-      <WalletChipLink userId={user.id} />
+      <div className="flex items-center gap-2 sm:gap-3 lg:gap-4">
+        {/* Wallet chip — visible from sm up */}
+        <WalletChipLink userId={user.id} />
 
-
-
-      {/* Messages — desktop quick action */}
-      <Link
-        to="/messages"
-        className="relative hidden h-9 w-9 items-center justify-center rounded-full border border-arena-border bg-arena-panel/60 text-muted-foreground transition hover:border-white/30 hover:text-white focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/60 focus-visible:ring-offset-2 focus-visible:ring-offset-arena-bg md:inline-flex"
-        aria-label={dmUnread ? `Messages, ${dmUnread} unread` : "Messages"}
-      >
-        <MessageCircle className="h-4 w-4" aria-hidden="true" />
-        {dmUnread > 0 && (
-          <span
-            aria-hidden="true"
-            className="absolute -right-1 -top-1 grid h-4 min-w-4 place-items-center rounded-full bg-live px-1 text-[10px] font-bold text-live-foreground ring-2 ring-arena-bg"
-          >
-            {dmUnread > 9 ? "9+" : dmUnread}
-          </span>
-        )}
-      </Link>
-
-      {/* Notifications — desktop popover */}
-      <Popover open={notifOpen} onOpenChange={setNotifOpen}>
-        <PopoverTrigger asChild>
-          <button
-            type="button"
-            className="relative hidden h-9 w-9 items-center justify-center rounded-full border border-arena-border bg-arena-panel/60 text-muted-foreground transition hover:border-white/30 hover:text-white focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/60 focus-visible:ring-offset-2 focus-visible:ring-offset-arena-bg md:inline-flex"
-            aria-label={
-              notifUnread
-                ? `Notifications, ${notifUnread} unread`
-                : "Notifications"
-            }
-          >
-            <Bell className="h-4 w-4" aria-hidden="true" />
-            {notifUnread > 0 && (
-              <span
-                aria-hidden="true"
-                className="absolute -right-1 -top-1 grid h-4 min-w-4 place-items-center rounded-full bg-live px-1 text-[10px] font-bold text-live-foreground ring-2 ring-arena-bg"
-              >
-                {notifUnread > 9 ? "9+" : notifUnread}
-              </span>
-            )}
-          </button>
-        </PopoverTrigger>
-        <PopoverContent
-          align="end"
-          sideOffset={10}
-          className="w-80 border-arena-border bg-arena-bg/95 p-0 backdrop-blur-xl"
-          aria-label="Notifications"
+        {/* Messages — desktop quick action */}
+        <Link
+          to="/messages"
+          className="relative hidden h-9 w-9 items-center justify-center rounded-full border border-arena-border bg-arena-panel/60 text-muted-foreground transition hover:border-white/30 hover:text-white focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/60 focus-visible:ring-offset-2 focus-visible:ring-offset-arena-bg md:inline-flex"
+          aria-label={dmUnread ? `Messages, ${dmUnread} unread` : "Messages"}
         >
-          <NotificationsPanel onNavigate={() => setNotifOpen(false)} />
-        </PopoverContent>
-      </Popover>
-
-      {/* Avatar dropdown */}
-      <DropdownMenu>
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <DropdownMenuTrigger
-              className={cn(
-                "group inline-flex items-center gap-2 rounded-full border border-arena-border bg-arena-panel/60 py-1 pl-1 pr-1 text-sm text-white transition",
-                "hover:border-white/30 hover:bg-arena-panel focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/60 focus-visible:ring-offset-2 focus-visible:ring-offset-arena-bg",
-                "sm:pr-3",
-              )}
-              aria-label={
-                totalAlertBadge > 0
-                  ? `Account menu for ${displayName}, ${totalAlertBadge} unread alerts`
-                  : `Account menu for ${displayName}`
-              }
+          <MessageCircle className="h-4 w-4" aria-hidden="true" />
+          {dmUnread > 0 && (
+            <span
+              aria-hidden="true"
+              className="absolute -right-1 -top-1 grid h-4 min-w-4 place-items-center rounded-full bg-live px-1 text-[10px] font-bold text-live-foreground ring-2 ring-arena-bg"
             >
-              <span
-                role="img"
-                aria-label={`${displayName} avatar`}
-                className="relative grid h-7 w-7 shrink-0 place-items-center overflow-hidden rounded-full bg-gradient-to-br from-arena-violet to-arena-cyan text-xs font-bold"
-              >
-                {avatarUrl ? (
-                  <img src={avatarUrl} alt="" className="h-full w-full object-cover" />
-                ) : (
-                  <span aria-hidden="true">{initial}</span>
-                )}
-                {totalAlertBadge > 0 && (
-                  <span
-                    aria-hidden="true"
-                    className="absolute -right-0.5 -top-0.5 h-2.5 w-2.5 rounded-full bg-live ring-2 ring-arena-bg md:hidden"
-                  />
-                )}
-              </span>
-              <span className="hidden max-w-[9rem] truncate font-medium sm:inline">
-                {displayName}
-              </span>
-              {isAdmin && (
-                <span className="hidden rounded-sm bg-primary/20 px-1.5 py-[1px] text-[9px] font-bold uppercase tracking-wider text-primary sm:inline">
-                  Admin
+              {dmUnread > 9 ? "9+" : dmUnread}
+            </span>
+          )}
+        </Link>
+
+        {/* Notifications — desktop popover */}
+        <Popover open={notifOpen} onOpenChange={setNotifOpen}>
+          <PopoverTrigger asChild>
+            <button
+              type="button"
+              className="relative hidden h-9 w-9 items-center justify-center rounded-full border border-arena-border bg-arena-panel/60 text-muted-foreground transition hover:border-white/30 hover:text-white focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/60 focus-visible:ring-offset-2 focus-visible:ring-offset-arena-bg md:inline-flex"
+              aria-label={notifUnread ? `Notifications, ${notifUnread} unread` : "Notifications"}
+            >
+              <Bell className="h-4 w-4" aria-hidden="true" />
+              {notifUnread > 0 && (
+                <span
+                  aria-hidden="true"
+                  className="absolute -right-1 -top-1 grid h-4 min-w-4 place-items-center rounded-full bg-live px-1 text-[10px] font-bold text-live-foreground ring-2 ring-arena-bg"
+                >
+                  {notifUnread > 9 ? "9+" : notifUnread}
                 </span>
               )}
-            </DropdownMenuTrigger>
-          </TooltipTrigger>
-          <TooltipContent side="bottom" align="end" className="sm:hidden">
-            {displayName}
-            {totalAlertBadge > 0 ? ` · ${totalAlertBadge} unread` : ""}
-          </TooltipContent>
-        </Tooltip>
+            </button>
+          </PopoverTrigger>
+          <PopoverContent
+            align="end"
+            sideOffset={10}
+            className="w-80 border-arena-border bg-arena-bg/95 p-0 backdrop-blur-xl"
+            aria-label="Notifications"
+          >
+            <NotificationsPanel onNavigate={() => setNotifOpen(false)} />
+          </PopoverContent>
+        </Popover>
 
-        <DropdownMenuContent
-          align="end"
-          sideOffset={10}
-          className="w-72 border-arena-border bg-arena-bg/95 p-1.5 backdrop-blur-xl"
-        >
-          <DropdownMenuLabel className="px-2 py-2">
-            <div className="flex items-center gap-3">
-              <span className="grid h-10 w-10 shrink-0 place-items-center overflow-hidden rounded-full bg-gradient-to-br from-arena-violet to-arena-cyan text-sm font-bold text-white">
-                {avatarUrl ? (
-                  <img src={avatarUrl} alt="" className="h-full w-full object-cover" />
-                ) : (
-                  initial
+        {/* Avatar dropdown */}
+        <DropdownMenu>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <DropdownMenuTrigger
+                className={cn(
+                  "group inline-flex items-center gap-2 rounded-full border border-arena-border bg-arena-panel/60 py-1 pl-1 pr-1 text-sm text-white transition",
+                  "hover:border-white/30 hover:bg-arena-panel focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/60 focus-visible:ring-offset-2 focus-visible:ring-offset-arena-bg",
+                  "sm:pr-3",
                 )}
-              </span>
-              <div className="min-w-0 flex-1">
-                <div className="flex items-center gap-1.5">
-                  <span className="truncate text-sm font-semibold text-white">
-                    {displayName}
+                aria-label={
+                  totalAlertBadge > 0
+                    ? `Account menu for ${displayName}, ${totalAlertBadge} unread alerts`
+                    : `Account menu for ${displayName}`
+                }
+              >
+                <span
+                  role="img"
+                  aria-label={`${displayName} avatar`}
+                  className="relative grid h-7 w-7 shrink-0 place-items-center overflow-hidden rounded-full bg-gradient-to-br from-arena-violet to-arena-cyan text-xs font-bold"
+                >
+                  {avatarUrl ? (
+                    <img src={avatarUrl} alt="" className="h-full w-full object-cover" />
+                  ) : (
+                    <span aria-hidden="true">{initial}</span>
+                  )}
+                  {totalAlertBadge > 0 && (
+                    <span
+                      aria-hidden="true"
+                      className="absolute -right-0.5 -top-0.5 h-2.5 w-2.5 rounded-full bg-live ring-2 ring-arena-bg md:hidden"
+                    />
+                  )}
+                </span>
+                <span className="hidden max-w-[9rem] truncate font-medium sm:inline">
+                  {displayName}
+                </span>
+                {isAdmin && (
+                  <span className="hidden rounded-sm bg-primary/20 px-1.5 py-[1px] text-[9px] font-bold uppercase tracking-wider text-primary sm:inline">
+                    Admin
                   </span>
-                  {isAdmin && (
-                    <span className="rounded-sm bg-primary/20 px-1 py-[1px] text-[9px] font-bold uppercase tracking-wider text-primary">
-                      Admin
-                    </span>
+                )}
+                {isVip && (
+                  <span className="hidden items-center gap-1 rounded-sm bg-amber-400/15 px-1.5 py-[1px] text-[9px] font-bold uppercase tracking-wider text-amber-300 sm:inline-flex">
+                    <Crown className="h-2.5 w-2.5" aria-hidden="true" />
+                    VIP
+                  </span>
+                )}
+              </DropdownMenuTrigger>
+            </TooltipTrigger>
+            <TooltipContent side="bottom" align="end" className="sm:hidden">
+              {displayName}
+              {totalAlertBadge > 0 ? ` · ${totalAlertBadge} unread` : ""}
+            </TooltipContent>
+          </Tooltip>
+
+          <DropdownMenuContent
+            align="end"
+            sideOffset={10}
+            className="w-72 border-arena-border bg-arena-bg/95 p-1.5 backdrop-blur-xl"
+          >
+            <DropdownMenuLabel className="px-2 py-2">
+              <div className="flex items-center gap-3">
+                <span className="grid h-10 w-10 shrink-0 place-items-center overflow-hidden rounded-full bg-gradient-to-br from-arena-violet to-arena-cyan text-sm font-bold text-white">
+                  {avatarUrl ? (
+                    <img src={avatarUrl} alt="" className="h-full w-full object-cover" />
+                  ) : (
+                    initial
+                  )}
+                </span>
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center gap-1.5">
+                    <span className="truncate text-sm font-semibold text-white">{displayName}</span>
+                    {isAdmin && (
+                      <span className="rounded-sm bg-primary/20 px-1 py-[1px] text-[9px] font-bold uppercase tracking-wider text-primary">
+                        Admin
+                      </span>
+                    )}
+                    {isVip && (
+                      <span className="inline-flex items-center gap-1 rounded-sm bg-amber-400/15 px-1 py-[1px] text-[9px] font-bold uppercase tracking-wider text-amber-300">
+                        <Crown className="h-2.5 w-2.5" aria-hidden="true" />
+                        VIP
+                      </span>
+                    )}
+                  </div>
+                  {email && (
+                    <div className="truncate text-[11px] text-muted-foreground">{email}</div>
                   )}
                 </div>
-                {email && (
-                  <div className="truncate text-[11px] text-muted-foreground">
-                    {email}
-                  </div>
-                )}
               </div>
-            </div>
-          </DropdownMenuLabel>
+            </DropdownMenuLabel>
 
-          <DropdownMenuSeparator className="bg-arena-border" />
+            <DropdownMenuSeparator className="bg-arena-border" />
 
-          {/* Wallet row — always visible in menu (mobile parity) */}
-          <MotionMenuLink to="/wallet" icon={<Wallet className="h-4 w-4 text-arena-gold" aria-hidden="true" />}>
-            <span className="flex-1">Wallet</span>
-            <WalletMenuBalance userId={user.id} />
-          </MotionMenuLink>
-
-          <MotionMenuLink to="/profile" icon={<UserIcon className="h-4 w-4" aria-hidden="true" />}>
-            <span>Profile</span>
-          </MotionMenuLink>
-
-          <MotionMenuLink to="/dashboard" icon={<Wallet className="h-4 w-4" aria-hidden="true" />}>
-            <span>My Dashboard</span>
-          </MotionMenuLink>
-
-          {isAdmin && (
-            <MotionMenuLink to="/iptv" icon={<Wallet className="h-4 w-4" aria-hidden="true" />}>
-              <span>IPTV</span>
+            {/* Wallet row — always visible in menu (mobile parity) */}
+            <MotionMenuLink
+              to="/wallet"
+              icon={<Wallet className="h-4 w-4 text-arena-gold" aria-hidden="true" />}
+            >
+              <span className="flex-1">Wallet</span>
+              <WalletMenuBalance userId={user.id} />
             </MotionMenuLink>
-          )}
 
-          <MotionMenuLink to="/messages" icon={<MessageCircle className="h-4 w-4" aria-hidden="true" />}>
-            <span className="flex-1">Messages</span>
-            {dmUnread > 0 && (
-              <span className="grid h-4 min-w-4 place-items-center rounded-full bg-live px-1 text-[10px] font-bold text-live-foreground">
-                {dmUnread > 9 ? "9+" : dmUnread}
-              </span>
+            <MotionMenuLink
+              to="/profile"
+              icon={<UserIcon className="h-4 w-4" aria-hidden="true" />}
+            >
+              <span>Profile</span>
+            </MotionMenuLink>
+
+            <MotionMenuLink
+              to="/dashboard"
+              icon={<Wallet className="h-4 w-4" aria-hidden="true" />}
+            >
+              <span>My Dashboard</span>
+            </MotionMenuLink>
+
+            {isAdmin && (
+              <MotionMenuLink to="/iptv" icon={<Wallet className="h-4 w-4" aria-hidden="true" />}>
+                <span>IPTV</span>
+              </MotionMenuLink>
             )}
-          </MotionMenuLink>
 
+            <MotionMenuLink
+              to="/messages"
+              icon={<MessageCircle className="h-4 w-4" aria-hidden="true" />}
+            >
+              <span className="flex-1">Messages</span>
+              {dmUnread > 0 && (
+                <span className="grid h-4 min-w-4 place-items-center rounded-full bg-live px-1 text-[10px] font-bold text-live-foreground">
+                  {dmUnread > 9 ? "9+" : dmUnread}
+                </span>
+              )}
+            </MotionMenuLink>
 
-          <DropdownMenuSeparator className="bg-arena-border md:hidden" />
+            <DropdownMenuSeparator className="bg-arena-border md:hidden" />
 
-          {/* Mobile: inline notifications panel */}
-          <div className="md:hidden">
-            <NotificationsPanel compact />
-          </div>
+            {/* Mobile: inline notifications panel */}
+            <div className="md:hidden">
+              <NotificationsPanel compact />
+            </div>
 
-          {!authLoading && isAdmin && (
-            <>
-              <DropdownMenuSeparator className="bg-arena-border" />
-              <DropdownMenuLabel className="px-2 pb-1 pt-2 text-[9px] font-bold uppercase tracking-widest text-arena-violet">
-                Admin
-              </DropdownMenuLabel>
-              <MotionMenuLink
-                to="/admin"
-                activeExact
-                icon={<Shield className="h-4 w-4 text-primary" aria-hidden="true" />}
-              >
-                <span>Admin console</span>
-              </MotionMenuLink>
-              <MotionMenuLink
-                to="/admin/settings"
-                icon={<Settings className="h-4 w-4" aria-hidden="true" />}
-              >
-                <span>Admin settings</span>
-              </MotionMenuLink>
-            </>
-          )}
+            {!authLoading && isAdmin && (
+              <>
+                <DropdownMenuSeparator className="bg-arena-border" />
+                <DropdownMenuLabel className="px-2 pb-1 pt-2 text-[9px] font-bold uppercase tracking-widest text-arena-violet">
+                  Admin
+                </DropdownMenuLabel>
+                <MotionMenuLink
+                  to="/admin"
+                  activeExact
+                  icon={<Shield className="h-4 w-4 text-primary" aria-hidden="true" />}
+                >
+                  <span>Admin console</span>
+                </MotionMenuLink>
+                <MotionMenuLink
+                  to="/admin/settings"
+                  icon={<Settings className="h-4 w-4" aria-hidden="true" />}
+                >
+                  <span>Admin settings</span>
+                </MotionMenuLink>
+              </>
+            )}
 
-          <DropdownMenuSeparator className="bg-arena-border" />
+            <DropdownMenuSeparator className="bg-arena-border" />
 
-          <DropdownMenuItem
-            onSelect={(e) => {
-              e.preventDefault();
-              setSignOutOpen(true);
-            }}
-            className="focus:bg-live/20 focus:text-live-foreground"
-          >
-            <LogOut className="mr-2 h-4 w-4 text-live" />
-            <span>Sign out</span>
-          </DropdownMenuItem>
-        </DropdownMenuContent>
-      </DropdownMenu>
+            <DropdownMenuItem
+              onSelect={(e) => {
+                e.preventDefault();
+                setSignOutOpen(true);
+              }}
+              className="focus:bg-live/20 focus:text-live-foreground"
+            >
+              <LogOut className="mr-2 h-4 w-4 text-live" />
+              <span>Sign out</span>
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
 
-      <AlertDialog
-        open={signOutOpen}
-        onOpenChange={(open) => {
-          // Prevent closing while sign-out is in flight.
-          if (!open && signingOut) return;
-          setSignOutOpen(open);
-        }}
-      >
-        <AlertDialogContent
-          className="border-arena-border bg-arena-bg"
-          onEscapeKeyDown={(e) => {
-            if (signingOut) e.preventDefault();
+        <AlertDialog
+          open={signOutOpen}
+          onOpenChange={(open) => {
+            // Prevent closing while sign-out is in flight.
+            if (!open && signingOut) return;
+            setSignOutOpen(open);
           }}
         >
-
-          <AlertDialogHeader>
-            <AlertDialogTitle className="text-white">
-              {signingOut ? "Signing you out…" : "Sign out?"}
-            </AlertDialogTitle>
-            <AlertDialogDescription>
-              {signingOut
-                ? "Clearing your session. You'll be redirected in a moment."
-                : "You'll be returned to the sign-in screen. Any unsaved lounge chat drafts will be lost."}
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel disabled={signingOut}>Stay signed in</AlertDialogCancel>
-            <AlertDialogAction
-              disabled={signingOut}
-              aria-busy={signingOut}
-              onClick={(e) => {
-                e.preventDefault();
-                void confirmSignOut();
-              }}
-              className="bg-live text-live-foreground hover:bg-live/90"
-            >
-              {signingOut ? (
-                <Loader2 className="mr-2 h-4 w-4 animate-spin" aria-hidden="true" />
-              ) : (
-                <LogOut className="mr-2 h-4 w-4" aria-hidden="true" />
-              )}
-              {signingOut ? "Signing out…" : "Sign out"}
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
-
-    </div>
+          <AlertDialogContent
+            className="border-arena-border bg-arena-bg"
+            onEscapeKeyDown={(e) => {
+              if (signingOut) e.preventDefault();
+            }}
+          >
+            <AlertDialogHeader>
+              <AlertDialogTitle className="text-white">
+                {signingOut ? "Signing you out…" : "Sign out?"}
+              </AlertDialogTitle>
+              <AlertDialogDescription>
+                {signingOut
+                  ? "Clearing your session. You'll be redirected in a moment."
+                  : "You'll be returned to the sign-in screen. Any unsaved lounge chat drafts will be lost."}
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel disabled={signingOut}>Stay signed in</AlertDialogCancel>
+              <AlertDialogAction
+                disabled={signingOut}
+                aria-busy={signingOut}
+                onClick={(e) => {
+                  e.preventDefault();
+                  void confirmSignOut();
+                }}
+                className="bg-live text-live-foreground hover:bg-live/90"
+              >
+                {signingOut ? (
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" aria-hidden="true" />
+                ) : (
+                  <LogOut className="mr-2 h-4 w-4" aria-hidden="true" />
+                )}
+                {signingOut ? "Signing out…" : "Sign out"}
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
+      </div>
     </TooltipProvider>
   );
 }
-
 
 function useWalletBalanceCents(userId: string) {
   return useQuery({
@@ -713,10 +723,7 @@ function MotionMenuLink({
     : { type: "spring" as const, stiffness: 380, damping: 30 };
 
   return (
-    <DropdownMenuItem
-      asChild
-      className="focus:bg-transparent data-[highlighted]:bg-transparent"
-    >
+    <DropdownMenuItem asChild className="focus:bg-transparent data-[highlighted]:bg-transparent">
       <Link
         to={to}
         aria-current={active ? "page" : undefined}
@@ -729,8 +736,7 @@ function MotionMenuLink({
         }`}
         style={{
           transition: "color 200ms ease, text-shadow 220ms ease",
-          textShadow:
-            active || hovered ? "0 0 10px hsl(var(--primary) / 0.5)" : "none",
+          textShadow: active || hovered ? "0 0 10px hsl(var(--primary) / 0.5)" : "none",
         }}
       >
         {hovered && !active && (
@@ -774,4 +780,3 @@ function MotionMenuLink({
     </DropdownMenuItem>
   );
 }
-

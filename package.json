@@ -16,7 +16,6 @@
     "preview": "vite preview",
     "lint": "eslint .",
     "format": "prettier --write .",
-    "check:arena": "node scripts/check-arena-admin.mjs",
     "visual:admin": "python3 e2e/visual/snapshot-admin.py",
     "visual:admin:update": "python3 e2e/visual/snapshot-admin.py --update"
   },

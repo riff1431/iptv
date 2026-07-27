@@ -85,16 +85,11 @@ function useAdminDashboard() {
       const [matches, profiles, sessions, wallet, stats] = await Promise.all([
         supabase
           .from("matches")
-          .select(
-            "id,title,sport,status,home_label,away_label,starts_at,created_at,thumbnail_url",
-          )
+          .select("id,title,sport,status,home_label,away_label,starts_at,created_at,thumbnail_url")
           .order("created_at", { ascending: false })
           .limit(20),
         supabase.from("profiles").select("id,created_at"),
-        supabase
-          .from("lounge_sessions")
-          .select("id,user_id,created_at")
-          .gte("created_at", since30),
+        supabase.from("lounge_sessions").select("id,user_id,created_at").gte("created_at", since30),
         supabase
           .from("wallet_transactions")
           .select("id,type,amount_cents,created_at")
@@ -105,12 +100,11 @@ function useAdminDashboard() {
       const statsRow = (stats.data as DashboardStats[] | null)?.[0] ?? null;
 
       const matchIds = (matches.data ?? []).map((m) => m.id);
-      let viewers: Record<string, number> = {};
+      const viewers: Record<string, number> = {};
       if (matchIds.length > 0) {
-        const { data: vc } = await supabase.rpc(
-          "admin_match_viewer_counts",
-          { _match_ids: matchIds },
-        );
+        const { data: vc } = await supabase.rpc("admin_match_viewer_counts", {
+          _match_ids: matchIds,
+        });
         for (const row of (vc as Array<{ match_id: string; viewers_24h: number }> | null) ?? []) {
           viewers[row.match_id] = row.viewers_24h;
         }
@@ -154,7 +148,6 @@ function formatDelta(
   return { text, positive: diff >= 0, neutral: diff === 0 };
 }
 
-
 function buildRevenueSeries(
   wallet: Array<{ created_at: string; type: string; amount_cents: number }>,
   days: number,
@@ -168,6 +161,7 @@ function buildRevenueSeries(
     if (
       w.type === "debit_lounge_entry" ||
       w.type === "debit_match_entry" ||
+      w.type === "debit_vip_upgrade" ||
       w.type === "debit_tip"
     ) {
       const key = w.created_at.slice(0, 10);
@@ -203,18 +197,10 @@ function KpiCard({
         "transition hover:border-white/20",
       )}
     >
-      <div
-        className={cn(
-          "pointer-events-none absolute inset-0 -z-10 opacity-40",
-          glow,
-        )}
-      />
+      <div className={cn("pointer-events-none absolute inset-0 -z-10 opacity-40", glow)} />
       <div className="flex items-start gap-3">
         <div
-          className={cn(
-            "grid h-12 w-12 shrink-0 place-items-center rounded-full ring-1",
-            accent,
-          )}
+          className={cn("grid h-12 w-12 shrink-0 place-items-center rounded-full ring-1", accent)}
         >
           <Icon className="h-5 w-5" />
         </div>
@@ -250,15 +236,12 @@ function KpiCard({
               {delta.text}
             </span>
           )}
-          {deltaLabel && (
-            <span className="text-muted-foreground">{deltaLabel}</span>
-          )}
+          {deltaLabel && <span className="text-muted-foreground">{deltaLabel}</span>}
         </div>
       )}
     </div>
   );
 }
-
 
 function Panel({
   title,
@@ -272,12 +255,7 @@ function Panel({
   className?: string;
 }) {
   return (
-    <div
-      className={cn(
-        "rounded-2xl border border-arena-border bg-arena-panel p-5",
-        className,
-      )}
-    >
+    <div className={cn("rounded-2xl border border-arena-border bg-arena-panel p-5", className)}>
       <div className="mb-4 flex items-center justify-between gap-3">
         <div className="font-display text-lg font-bold text-white">{title}</div>
         {action}
@@ -293,9 +271,7 @@ function StatusPill({ status }: { status: string }) {
     <span
       className={cn(
         "inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-[11px] font-bold uppercase tracking-wider",
-        isLive
-          ? "bg-emerald-500/15 text-emerald-400"
-          : "bg-muted/40 text-muted-foreground",
+        isLive ? "bg-emerald-500/15 text-emerald-400" : "bg-muted/40 text-muted-foreground",
       )}
     >
       <span
@@ -309,13 +285,7 @@ function StatusPill({ status }: { status: string }) {
   );
 }
 
-function MatchThumb({
-  url,
-  label,
-}: {
-  url: string | null;
-  label: string;
-}) {
+function MatchThumb({ url, label }: { url: string | null; label: string }) {
   if (url) {
     return (
       <img
@@ -337,9 +307,7 @@ function MatchThumb({
 export function AdminDashboard() {
   const { data, isLoading, error } = useAdminDashboard();
   const [revenueRange, setRevenueRange] = useState<"week" | "month">("week");
-  const [revenueBySrcRange, setRevenueBySrcRange] = useState<"week" | "month">(
-    "week",
-  );
+  const [revenueBySrcRange, setRevenueBySrcRange] = useState<"week" | "month">("week");
 
   const derived = useMemo(() => {
     if (!data) return null;
@@ -348,15 +316,14 @@ export function AdminDashboard() {
     const liveMatches = data.matches.filter((m) => m.status === "live");
     const totalUsers = data.profiles.length;
     const activeUsers = new Set(
-      data.sessions
-        .filter((s) => s.created_at >= data.since24h)
-        .map((s) => s.user_id),
+      data.sessions.filter((s) => s.created_at >= data.since24h).map((s) => s.user_id),
     ).size;
     const revenue30d = data.wallet
       .filter(
         (w) =>
           w.type === "debit_lounge_entry" ||
           w.type === "debit_match_entry" ||
+          w.type === "debit_vip_upgrade" ||
           w.type === "debit_tip",
       )
       .reduce((sum, w) => sum + Math.abs(w.amount_cents ?? 0), 0);
@@ -369,6 +336,7 @@ export function AdminDashboard() {
       lounge_entry: 0,
       match_entry: 0,
       tips: 0,
+      vip: 0,
       other: 0,
     };
     for (const w of data.wallet) {
@@ -376,12 +344,10 @@ export function AdminDashboard() {
       if (w.type === "debit_lounge_entry") bySource.lounge_entry += amt;
       else if (w.type === "debit_match_entry") bySource.match_entry += amt;
       else if (w.type === "debit_tip") bySource.tips += amt;
+      else if (w.type === "debit_vip_upgrade") bySource.vip += amt;
     }
     const sourceTotal =
-      bySource.lounge_entry +
-      bySource.match_entry +
-      bySource.tips +
-      bySource.other;
+      bySource.lounge_entry + bySource.match_entry + bySource.tips + bySource.vip + bySource.other;
     const sourceRows = [
       {
         key: "lounge",
@@ -396,6 +362,7 @@ export function AdminDashboard() {
         color: "#3b82f6",
       },
       { key: "tips", label: "Tips", cents: bySource.tips, color: "#ec4899" },
+      { key: "vip", label: "VIP Memberships", cents: bySource.vip, color: "#a78bfa" },
       { key: "other", label: "Other", cents: bySource.other, color: "#f59e0b" },
     ];
 
@@ -403,20 +370,12 @@ export function AdminDashboard() {
     const s = data.stats;
     const deltas = {
       lobbies: formatDelta(s?.lobbies_today ?? 0, s?.lobbies_yesterday ?? 0),
-      live: formatDelta(
-        s?.live_lobbies_now ?? 0,
-        s?.live_lobbies_prev_24h ?? 0,
-      ),
+      live: formatDelta(s?.live_lobbies_now ?? 0, s?.live_lobbies_prev_24h ?? 0),
       users: formatDelta(s?.users_today ?? 0, s?.users_yesterday ?? 0),
-      active: formatDelta(
-        s?.active_users_24h ?? 0,
-        s?.active_users_prev_24h ?? 0,
-      ),
-      revenue: formatDelta(
-        s?.revenue_today_cents ?? 0,
-        s?.revenue_yesterday_cents ?? 0,
-        { asPercent: true },
-      ),
+      active: formatDelta(s?.active_users_24h ?? 0, s?.active_users_prev_24h ?? 0),
+      revenue: formatDelta(s?.revenue_today_cents ?? 0, s?.revenue_yesterday_cents ?? 0, {
+        asPercent: true,
+      }),
     };
 
     return {
@@ -433,7 +392,6 @@ export function AdminDashboard() {
       deltas,
     };
   }, [data, revenueRange]);
-
 
   if (isLoading || !derived) {
     return (
@@ -470,9 +428,7 @@ export function AdminDashboard() {
           <h1 className="font-display text-2xl font-extrabold uppercase tracking-tight text-white">
             Admin Dashboard
           </h1>
-          <p className="mt-1 text-sm text-muted-foreground">
-            Welcome back, Admin 👑
-          </p>
+          <p className="mt-1 text-sm text-muted-foreground">Welcome back, Admin 👑</p>
         </div>
         <div className="flex items-center gap-2">
           <button
@@ -550,7 +506,6 @@ export function AdminDashboard() {
         />
       </div>
 
-
       {/* Recent + Live lobbies */}
       <div className="grid gap-4 lg:grid-cols-2">
         <Panel
@@ -586,13 +541,9 @@ export function AdminDashboard() {
                   >
                     <div className="flex items-center gap-2 min-w-0">
                       <MatchThumb url={m.thumbnail_url} label={m.title} />
-                      <span className="truncate text-white font-medium">
-                        {m.title}
-                      </span>
+                      <span className="truncate text-white font-medium">{m.title}</span>
                     </div>
-                    <div className="uppercase text-muted-foreground">
-                      {m.sport ?? "—"}
-                    </div>
+                    <div className="uppercase text-muted-foreground">{m.sport ?? "—"}</div>
                     <div className="font-mono text-muted-foreground">
                       LBY-{m.id.slice(0, 6).toUpperCase()}
                     </div>
@@ -603,9 +554,7 @@ export function AdminDashboard() {
                       {(derived.viewers[m.id] ?? 0).toLocaleString()}
                     </div>
 
-                    <div className="text-muted-foreground">
-                      {timeAgo(m.created_at)}
-                    </div>
+                    <div className="text-muted-foreground">{timeAgo(m.created_at)}</div>
                   </li>
                 ))}
               </ul>
@@ -617,9 +566,7 @@ export function AdminDashboard() {
           title={
             <span className="flex items-center gap-2">
               Live Lobbies
-              <span className="text-xs font-normal text-muted-foreground">
-                (Real Time)
-              </span>
+              <span className="text-xs font-normal text-muted-foreground">(Real Time)</span>
             </span>
           }
           action={
@@ -643,10 +590,7 @@ export function AdminDashboard() {
                   className="flex items-center justify-between rounded-lg border border-arena-border/60 bg-arena-bg/40 px-3 py-2.5"
                 >
                   <div className="flex items-center gap-3 min-w-0">
-                    <MatchThumb
-                      url={m.thumbnail_url}
-                      label={m.home_label ?? m.title}
-                    />
+                    <MatchThumb url={m.thumbnail_url} label={m.home_label ?? m.title} />
                     <span className="text-[10px] uppercase tracking-widest text-muted-foreground">
                       vs
                     </span>
@@ -664,7 +608,6 @@ export function AdminDashboard() {
                       <Users className="h-3.5 w-3.5" />
                       {(derived.viewers[m.id] ?? 0).toLocaleString()} watching
                     </span>
-
                   </div>
                 </li>
               ))}
@@ -680,9 +623,7 @@ export function AdminDashboard() {
           action={
             <Select
               value={revenueRange}
-              onValueChange={(v) =>
-                setRevenueRange(v as "week" | "month")
-              }
+              onValueChange={(v) => setRevenueRange(v as "week" | "month")}
             >
               <SelectTrigger className="h-8 w-[120px] rounded-lg border border-arena-border bg-arena-bg text-xs">
                 <SelectValue />
@@ -704,17 +645,10 @@ export function AdminDashboard() {
           </div>
           <div className="h-64">
             <ResponsiveContainer width="100%" height="100%">
-              <AreaChart
-                data={derived.series}
-                margin={{ top: 5, right: 8, left: -10, bottom: 0 }}
-              >
+              <AreaChart data={derived.series} margin={{ top: 5, right: 8, left: -10, bottom: 0 }}>
                 <defs>
                   <linearGradient id="revFill" x1="0" y1="0" x2="0" y2="1">
-                    <stop
-                      offset="5%"
-                      stopColor="#8b5cf6"
-                      stopOpacity={0.55}
-                    />
+                    <stop offset="5%" stopColor="#8b5cf6" stopOpacity={0.55} />
                     <stop offset="95%" stopColor="#8b5cf6" stopOpacity={0} />
                   </linearGradient>
                 </defs>
@@ -761,9 +695,7 @@ export function AdminDashboard() {
           action={
             <Select
               value={revenueBySrcRange}
-              onValueChange={(v) =>
-                setRevenueBySrcRange(v as "week" | "month")
-              }
+              onValueChange={(v) => setRevenueBySrcRange(v as "week" | "month")}
             >
               <SelectTrigger className="h-8 w-[120px] rounded-lg border border-arena-border bg-arena-bg text-xs">
                 <SelectValue />
@@ -818,10 +750,7 @@ export function AdminDashboard() {
                   ? Math.round((r.cents / derived.sourceTotal) * 100)
                   : 0;
                 return (
-                  <li
-                    key={r.key}
-                    className="flex items-center justify-between gap-2"
-                  >
+                  <li key={r.key} className="flex items-center justify-between gap-2">
                     <span className="flex items-center gap-2 truncate">
                       <span
                         className="h-2.5 w-2.5 shrink-0 rounded-full"

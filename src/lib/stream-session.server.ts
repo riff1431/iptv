@@ -46,14 +46,26 @@ export type TvRowForStream = {
   current_stream_url?: string | null;
 };
 
-function credsFor(tv: TvRowForStream): IptvCredentials {
+async function credsFor(tv: TvRowForStream): Promise<IptvCredentials> {
+  if (!tv.server_url) {
+    const { getCachedGlobalIptvSettings } = await import("@/lib/iptv-settings-cache.server");
+    const global = await getCachedGlobalIptvSettings();
+    if (!global) {
+      throw new Error("No IPTV provider is configured for this TV");
+    }
+    return {
+      server_url: global.server_url,
+      username: global.username,
+      password: global.password,
+      connection_type: "xtream",
+    };
+  }
+
   return {
-    server_url: tv.server_url ?? "",
+    server_url: tv.server_url,
     username: tv.username ?? null,
     password: decryptSecret(tv.password) || null,
-    connection_type: (tv.connection_type === "m3u" ? "m3u" : "xtream") as
-      | "xtream"
-      | "m3u",
+    connection_type: (tv.connection_type === "m3u" ? "m3u" : "xtream") as "xtream" | "m3u",
   };
 }
 
@@ -102,7 +114,7 @@ export async function getSharedPlaylist(
   const p = (async (): Promise<PlaylistEntry> => {
     try {
       const upstreamUrl = resolveStreamUrl(
-        credsFor(tv),
+        await credsFor(tv),
         tv.selected_channel_id!,
         tv.current_stream_url ?? null,
       );

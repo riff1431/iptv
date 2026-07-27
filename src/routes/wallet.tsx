@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { lazy, Suspense, useEffect, useMemo, useState } from "react";
 import { withAuth } from "@/components/RequireAuth";
 import { createFileRoute, stripSearchParams, useNavigate } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient, keepPreviousData } from "@tanstack/react-query";
@@ -22,6 +22,7 @@ import {
   Loader2,
   CircleDollarSign,
   Ticket,
+  Crown,
   Undo2,
   Download,
 } from "lucide-react";
@@ -65,15 +66,46 @@ import {
   SheetDescription,
 } from "@/components/ui/sheet";
 import { Link } from "@tanstack/react-router";
-import { WithdrawSection } from "@/components/wallet/WithdrawSection";
-import { TopupSection } from "@/components/wallet/TopupSection";
-import { WalletCharts } from "@/components/wallet/WalletCharts";
-import { TipsTab } from "@/components/wallet/TipsTab";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+
+const TopupSection = lazy(() =>
+  import("@/components/wallet/TopupSection").then((module) => ({
+    default: module.TopupSection,
+  })),
+);
+
+const WithdrawSection = lazy(() =>
+  import("@/components/wallet/WithdrawSection").then((module) => ({
+    default: module.WithdrawSection,
+  })),
+);
+
+const TipsTab = lazy(() =>
+  import("@/components/wallet/TipsTab").then((module) => ({
+    default: module.TipsTab,
+  })),
+);
+
+const WalletCharts = lazy(() =>
+  import("@/components/wallet/WalletCharts").then((module) => ({
+    default: module.WalletCharts,
+  })),
+);
 
 const walletSearchSchema = z.object({
   q: fallback(z.string(), "").default(""),
-  type: fallback(z.enum(["", "credit", "refund", "debit_lounge_entry", "debit_tip"]), "").default(""),
+  type: fallback(
+    z.enum([
+      "",
+      "credit",
+      "refund",
+      "debit_lounge_entry",
+      "debit_match_entry",
+      "debit_vip_upgrade",
+      "debit_tip",
+    ]),
+    "",
+  ).default(""),
   from: fallback(z.string(), "").default(""),
   to: fallback(z.string(), "").default(""),
   page: fallback(z.number().int().min(1), 1).default(1),
@@ -84,23 +116,28 @@ const walletSearchSchema = z.object({
   // Analytics chart state
   chartRange: fallback(z.enum(["7d", "30d", "90d", "all"]), "30d").default("30d"),
   chartSpend: fallback(
-    z
-      .string()
-      .transform((s) => {
-        const allowed = new Set(["credit", "refund", "debit_lounge_entry", "debit_tip"]);
-        const tokens = Array.from(
-          new Set(
-            s
-              .split(",")
-              .map((t) => t.trim())
-              .filter((t) => allowed.has(t)),
-          ),
-        );
-        // Empty toggle set is valid (user disabled all types) — preserve it as "".
-        return tokens.join(",");
-      }),
-    "debit_lounge_entry,debit_tip",
-  ).default("debit_lounge_entry,debit_tip"),
+    z.string().transform((s) => {
+      const allowed = new Set([
+        "credit",
+        "refund",
+        "debit_lounge_entry",
+        "debit_match_entry",
+        "debit_vip_upgrade",
+        "debit_tip",
+      ]);
+      const tokens = Array.from(
+        new Set(
+          s
+            .split(",")
+            .map((t) => t.trim())
+            .filter((t) => allowed.has(t)),
+        ),
+      );
+      // Empty toggle set is valid (user disabled all types) — preserve it as "".
+      return tokens.join(",");
+    }),
+    "debit_lounge_entry,debit_match_entry,debit_vip_upgrade,debit_tip",
+  ).default("debit_lounge_entry,debit_match_entry,debit_vip_upgrade,debit_tip"),
   // Drill-down modal state. Start/end must be valid ISO timestamps to open.
   drillStart: fallback(
     z.string().refine((v) => v === "" || !Number.isNaN(Date.parse(v)), "invalid ISO date"),
@@ -114,7 +151,14 @@ const walletSearchSchema = z.object({
   drillSub: fallback(z.string().max(400), "").default(""),
   drillTypes: fallback(
     z.string().transform((s) => {
-      const allowed = new Set(["credit", "refund", "debit_lounge_entry", "debit_tip"]);
+      const allowed = new Set([
+        "credit",
+        "refund",
+        "debit_lounge_entry",
+        "debit_match_entry",
+        "debit_vip_upgrade",
+        "debit_tip",
+      ]);
       return Array.from(
         new Set(
           s
@@ -157,7 +201,10 @@ export const Route = createFileRoute("/wallet")({
   head: () => ({
     meta: [
       { title: "Wallet — PGX Arena" },
-      { name: "description", content: "Track your PGX Arena balance, credits, refunds, and lounge entries." },
+      {
+        name: "description",
+        content: "Track your PGX Arena balance, credits, refunds, and lounge entries.",
+      },
       { name: "robots", content: "noindex" },
     ],
   }),
@@ -188,7 +235,16 @@ function csvEscape(v: unknown): string {
 }
 
 function buildTxCsv(rows: WalletTransaction[]): string {
-  const header = ["id", "created_at", "type", "amount_cents", "amount_usd", "memo", "external_ref", "lounge_session_id"];
+  const header = [
+    "id",
+    "created_at",
+    "type",
+    "amount_cents",
+    "amount_usd",
+    "memo",
+    "external_ref",
+    "lounge_session_id",
+  ];
   const lines = rows.map((r) => {
     const meta = typeMeta(r.type);
     const signed = meta.sign === "-" ? -r.amount_cents : r.amount_cents;
@@ -230,6 +286,10 @@ function typeMeta(t: WalletTxType) {
       return { label: "Lounge entry", icon: Ticket, tone: "text-amber-400", sign: "-" as const };
     case "debit_tip":
       return { label: "Tip", icon: ArrowDownRight, tone: "text-fuchsia-400", sign: "-" as const };
+    case "debit_match_entry":
+      return { label: "Match entry", icon: Ticket, tone: "text-blue-400", sign: "-" as const };
+    case "debit_vip_upgrade":
+      return { label: "VIP membership", icon: Crown, tone: "text-violet-400", sign: "-" as const };
     default:
       return { label: t, icon: CircleDollarSign, tone: "text-muted-foreground", sign: "" as const };
   }
@@ -360,8 +420,7 @@ function WalletPage() {
             for (const [key, cache] of txCaches) {
               if (!cache) continue;
               const filters = (Array.isArray(key) ? key[3] : undefined) as
-                | { type?: string; q?: string; from?: string; to?: string; page: number }
-                | undefined;
+                { type?: string; q?: string; from?: string; to?: string; page: number } | undefined;
               if (!filters) continue;
               if (!rowMatchesFilters(dto, filters)) continue;
               if (filters.page !== 1) {
@@ -437,7 +496,11 @@ function WalletPage() {
             }
           } else if (payload.eventType === "DELETE" && cache) {
             const row = payload.old as { id?: string };
-            if (row?.id) qc.setQueryData(key, cache.filter((r) => r.id !== row.id));
+            if (row?.id)
+              qc.setQueryData(
+                key,
+                cache.filter((r) => r.id !== row.id),
+              );
           } else {
             void qc.invalidateQueries({ queryKey: ["wallet", "withdrawals"] });
           }
@@ -461,7 +524,6 @@ function WalletPage() {
       void supabase.removeChannel(channel);
     };
   }, [user, qc]);
-
 
   const [qDraft, setQDraft] = useState(search.q);
   useEffect(() => setQDraft(search.q), [search.q]);
@@ -513,7 +575,8 @@ function WalletPage() {
   const creditMutation = useMutation({
     mutationFn: async () => {
       const dollars = Number.parseFloat(creditAmount);
-      if (!Number.isFinite(dollars) || dollars <= 0) throw new Error("Enter an amount greater than 0");
+      if (!Number.isFinite(dollars) || dollars <= 0)
+        throw new Error("Enter an amount greater than 0");
       const cents = Math.round(dollars * 100);
       if (cents < 100) throw new Error("Minimum top-up is $1.00");
       if (cents > 50_000) throw new Error("Test credits are capped at $500.00");
@@ -557,7 +620,9 @@ function WalletPage() {
             disabled={overview.isFetching || txs.isFetching}
             className="gap-2"
           >
-            <RefreshCw className={`h-3.5 w-3.5 ${overview.isFetching || txs.isFetching ? "animate-spin" : ""}`} />
+            <RefreshCw
+              className={`h-3.5 w-3.5 ${overview.isFetching || txs.isFetching ? "animate-spin" : ""}`}
+            />
             Refresh
           </Button>
         </header>
@@ -595,7 +660,8 @@ function WalletPage() {
 
         {(() => {
           const parsedDollars = Number.parseFloat(creditAmount);
-          const validDollars = Number.isFinite(parsedDollars) && parsedDollars > 0 ? parsedDollars : 0;
+          const validDollars =
+            Number.isFinite(parsedDollars) && parsedDollars > 0 ? parsedDollars : 0;
           const cents = Math.round(validDollars * 100);
           const capped = cents > 50_000;
           const tooSmall = cents > 0 && cents < 1;
@@ -682,7 +748,9 @@ function WalletPage() {
                   ) : (
                     <Plus className="h-4 w-4" />
                   )}
-                  {creditMutation.isPending ? "Adding…" : `Add ${validDollars > 0 && !capped ? fmtDollars(cents) : "credit"}`}
+                  {creditMutation.isPending
+                    ? "Adding…"
+                    : `Add ${validDollars > 0 && !capped ? fmtDollars(cents) : "credit"}`}
                 </Button>
               </div>
 
@@ -699,17 +767,27 @@ function WalletPage() {
           );
         })()}
 
-        <TopupSection />
+        <Suspense fallback={<div className="arena-card h-44 animate-pulse rounded-xl" />}>
+          <TopupSection />
+        </Suspense>
 
-        <WithdrawSection
-          availableCents={overview.data?.balanceCents ?? 0}
-          balanceLoading={overview.isLoading}
-        />
+        <Suspense fallback={<div className="arena-card h-44 animate-pulse rounded-xl" />}>
+          <WithdrawSection
+            availableCents={overview.data?.balanceCents ?? 0}
+            balanceLoading={overview.isLoading}
+          />
+        </Suspense>
 
-        <WalletCharts userId={user.id} />
-
-
-
+        <Suspense
+          fallback={
+            <div
+              className="arena-card h-80 animate-pulse rounded-xl"
+              aria-label="Loading wallet analytics"
+            />
+          }
+        >
+          <WalletCharts userId={user.id} />
+        </Suspense>
 
         <Tabs
           value={search.tab}
@@ -727,205 +805,252 @@ function WalletPage() {
           </TabsList>
 
           <TabsContent value="transactions" className="mt-0">
-        <section className="arena-card space-y-4 rounded-xl p-4 sm:p-5">
-          <div className="flex flex-col gap-3 md:flex-row md:items-center">
-            <div className="relative flex-1">
-              <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-              <Input
-                value={qDraft}
-                onChange={(e) => setQDraft(e.target.value)}
-                placeholder="Search memo, external ref, or lounge session…"
-                className="pl-9"
-                aria-label="Search transactions"
-              />
-            </div>
-            <Select
-              value={search.type || "__all"}
-              onValueChange={(v) => setFilter("type", (v === "__all" ? "" : v) as SearchState["type"])}
-            >
-              <SelectTrigger className="md:w-56">
-                <SelectValue placeholder="Any type" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="__all">Any type</SelectItem>
-                <SelectItem value="credit">Credit</SelectItem>
-                <SelectItem value="refund">Refund</SelectItem>
-                <SelectItem value="debit_lounge_entry">Lounge entry</SelectItem>
-                <SelectItem value="debit_tip">Tip</SelectItem>
-              </SelectContent>
-            </Select>
-            <Input
-              type="date"
-              value={search.from}
-              onChange={(e) => setFilter("from", e.target.value)}
-              className="md:w-40"
-              aria-label="From date"
-            />
-            <Input
-              type="date"
-              value={search.to}
-              onChange={(e) => setFilter("to", e.target.value)}
-              className="md:w-40"
-              aria-label="To date"
-            />
-            <Button
-              variant="arenaOutline"
-              onClick={clearAll}
-              disabled={activeFilterCount === 0}
-              className="gap-1"
-            >
-              <X className="h-4 w-4" /> Clear
-            </Button>
-            <Button
-              variant="arenaOutline"
-              onClick={() => {
-                const rows = txs.data?.rows ?? [];
-                if (rows.length === 0) {
-                  toast.error("No transactions to export");
-                  return;
-                }
-                const parts = [
-                  `page-${currentPage}`,
-                  search.type ? `type-${search.type}` : null,
-                  search.from ? `from-${search.from}` : null,
-                  search.to ? `to-${search.to}` : null,
-                ].filter(Boolean);
-                const suffix = parts.length ? `_${parts.join("_")}` : "";
-                downloadCsv(`wallet-transactions${suffix}.csv`, buildTxCsv(rows));
-                toast.success(`Exported ${rows.length} transaction${rows.length === 1 ? "" : "s"}`);
-              }}
-              disabled={txs.isLoading || (txs.data?.rows.length ?? 0) === 0}
-              className="gap-1"
-              aria-label="Export current page to CSV"
-            >
-              <Download className="h-4 w-4" /> Export CSV
-            </Button>
-          </div>
-
-          {activeFilterCount > 0 && (
-            <div className="flex flex-wrap items-center gap-1.5 text-xs">
-              <Filter className="h-3.5 w-3.5 text-muted-foreground" />
-              {search.q && <Chip label={`search: ${search.q}`} onClear={() => setFilter("q", "")} />}
-              {search.type && <Chip label={`type: ${search.type}`} onClear={() => setFilter("type", "" as SearchState["type"])} />}
-              {search.from && <Chip label={`from: ${search.from}`} onClear={() => setFilter("from", "")} />}
-              {search.to && <Chip label={`to: ${search.to}`} onClear={() => setFilter("to", "")} />}
-            </div>
-          )}
-
-          <div className="overflow-x-auto rounded-md border border-arena-border">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead className="w-[170px]">When</TableHead>
-                  <TableHead>Type</TableHead>
-                  <TableHead>Memo / reference</TableHead>
-                  <TableHead className="text-right">Amount</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {txs.isLoading && !txs.data ? (
-                  <tr>
-                    <td colSpan={4}>
-                      <AdminLoadingBlock label="Loading transactions…" />
-                    </td>
-                  </tr>
-                ) : txs.error ? (
-                  <tr>
-                    <td colSpan={4} className="p-5">
-                      <AdminErrorBlock
-                        message={txs.error instanceof Error ? txs.error.message : "Failed to load transactions"}
-                      />
-                    </td>
-                  </tr>
-                ) : (txs.data?.rows.length ?? 0) === 0 ? (
-                  <AdminEmptyRow
-                    colSpan={4}
-                    icon={WalletIcon}
-                    title="No transactions match"
-                    description={
-                      activeFilterCount > 0
-                        ? "Adjust or clear filters to see more."
-                        : "Credits, refunds, and lounge entries will appear here."
-                    }
+            <section className="arena-card space-y-4 rounded-xl p-4 sm:p-5">
+              <div className="flex flex-col gap-3 md:flex-row md:items-center">
+                <div className="relative flex-1">
+                  <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                  <Input
+                    value={qDraft}
+                    onChange={(e) => setQDraft(e.target.value)}
+                    placeholder="Search memo, external ref, or lounge session…"
+                    className="pl-9"
+                    aria-label="Search transactions"
                   />
-                ) : (
-                  txs.data!.rows.map((row) => (
-                    <TxRow key={row.id} row={row} onClick={() => setSelectedTxId(row.id)} />
-                  ))
-                )}
-              </TableBody>
-            </Table>
-          </div>
-
-          <div className="flex flex-col items-center justify-between gap-3 border-t border-arena-border pt-3 sm:flex-row">
-            <div className="text-xs text-muted-foreground">
-              {total === 0
-                ? "No transactions"
-                : `Showing ${firstIdx.toLocaleString()}–${lastIdx.toLocaleString()} of ${total.toLocaleString()}`}
-            </div>
-            <div className="flex items-center gap-2">
-              <span className="text-xs text-muted-foreground">Rows</span>
-              <Select
-                value={String(search.pageSize)}
-                onValueChange={(v) =>
-                  navigate({
-                    search: (prev: SearchState) => ({ ...prev, pageSize: Number(v), page: 1 }),
-                    replace: true,
-                  })
-                }
-              >
-                <SelectTrigger className="h-8 w-[80px]">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {[10, 20, 50, 100].map((n) => (
-                    <SelectItem key={n} value={String(n)}>
-                      {n}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              <div className="ml-2 flex items-center gap-1">
-                <Button size="icon" variant="arenaGhost" onClick={() => gotoPage(1)} disabled={currentPage <= 1} aria-label="First page">
-                  <ChevronsLeft className="h-4 w-4" />
+                </div>
+                <Select
+                  value={search.type || "__all"}
+                  onValueChange={(v) =>
+                    setFilter("type", (v === "__all" ? "" : v) as SearchState["type"])
+                  }
+                >
+                  <SelectTrigger className="md:w-56">
+                    <SelectValue placeholder="Any type" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="__all">Any type</SelectItem>
+                    <SelectItem value="credit">Credit</SelectItem>
+                    <SelectItem value="refund">Refund</SelectItem>
+                    <SelectItem value="debit_lounge_entry">Lounge entry</SelectItem>
+                    <SelectItem value="debit_match_entry">Match entry</SelectItem>
+                    <SelectItem value="debit_vip_upgrade">VIP membership</SelectItem>
+                    <SelectItem value="debit_tip">Tip</SelectItem>
+                  </SelectContent>
+                </Select>
+                <Input
+                  type="date"
+                  value={search.from}
+                  onChange={(e) => setFilter("from", e.target.value)}
+                  className="md:w-40"
+                  aria-label="From date"
+                />
+                <Input
+                  type="date"
+                  value={search.to}
+                  onChange={(e) => setFilter("to", e.target.value)}
+                  className="md:w-40"
+                  aria-label="To date"
+                />
+                <Button
+                  variant="arenaOutline"
+                  onClick={clearAll}
+                  disabled={activeFilterCount === 0}
+                  className="gap-1"
+                >
+                  <X className="h-4 w-4" /> Clear
                 </Button>
-                <Button size="icon" variant="arenaGhost" onClick={() => gotoPage(currentPage - 1)} disabled={currentPage <= 1} aria-label="Previous page">
-                  <ChevronLeft className="h-4 w-4" />
-                </Button>
-                <span className="min-w-[80px] text-center text-xs text-muted-foreground">
-                  Page {currentPage} / {pageCount}
-                </span>
-                <Button size="icon" variant="arenaGhost" onClick={() => gotoPage(currentPage + 1)} disabled={currentPage >= pageCount} aria-label="Next page">
-                  <ChevronRight className="h-4 w-4" />
-                </Button>
-                <Button size="icon" variant="arenaGhost" onClick={() => gotoPage(pageCount)} disabled={currentPage >= pageCount} aria-label="Last page">
-                  <ChevronsRight className="h-4 w-4" />
+                <Button
+                  variant="arenaOutline"
+                  onClick={() => {
+                    const rows = txs.data?.rows ?? [];
+                    if (rows.length === 0) {
+                      toast.error("No transactions to export");
+                      return;
+                    }
+                    const parts = [
+                      `page-${currentPage}`,
+                      search.type ? `type-${search.type}` : null,
+                      search.from ? `from-${search.from}` : null,
+                      search.to ? `to-${search.to}` : null,
+                    ].filter(Boolean);
+                    const suffix = parts.length ? `_${parts.join("_")}` : "";
+                    downloadCsv(`wallet-transactions${suffix}.csv`, buildTxCsv(rows));
+                    toast.success(
+                      `Exported ${rows.length} transaction${rows.length === 1 ? "" : "s"}`,
+                    );
+                  }}
+                  disabled={txs.isLoading || (txs.data?.rows.length ?? 0) === 0}
+                  className="gap-1"
+                  aria-label="Export current page to CSV"
+                >
+                  <Download className="h-4 w-4" /> Export CSV
                 </Button>
               </div>
-            </div>
-          </div>
-        </section>
+
+              {activeFilterCount > 0 && (
+                <div className="flex flex-wrap items-center gap-1.5 text-xs">
+                  <Filter className="h-3.5 w-3.5 text-muted-foreground" />
+                  {search.q && (
+                    <Chip label={`search: ${search.q}`} onClear={() => setFilter("q", "")} />
+                  )}
+                  {search.type && (
+                    <Chip
+                      label={`type: ${search.type}`}
+                      onClear={() => setFilter("type", "" as SearchState["type"])}
+                    />
+                  )}
+                  {search.from && (
+                    <Chip label={`from: ${search.from}`} onClear={() => setFilter("from", "")} />
+                  )}
+                  {search.to && (
+                    <Chip label={`to: ${search.to}`} onClear={() => setFilter("to", "")} />
+                  )}
+                </div>
+              )}
+
+              <div className="overflow-x-auto rounded-md border border-arena-border">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead className="w-[170px]">When</TableHead>
+                      <TableHead>Type</TableHead>
+                      <TableHead>Memo / reference</TableHead>
+                      <TableHead className="text-right">Amount</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {txs.isLoading && !txs.data ? (
+                      <tr>
+                        <td colSpan={4}>
+                          <AdminLoadingBlock label="Loading transactions…" />
+                        </td>
+                      </tr>
+                    ) : txs.error ? (
+                      <tr>
+                        <td colSpan={4} className="p-5">
+                          <AdminErrorBlock
+                            message={
+                              txs.error instanceof Error
+                                ? txs.error.message
+                                : "Failed to load transactions"
+                            }
+                          />
+                        </td>
+                      </tr>
+                    ) : (txs.data?.rows.length ?? 0) === 0 ? (
+                      <AdminEmptyRow
+                        colSpan={4}
+                        icon={WalletIcon}
+                        title="No transactions match"
+                        description={
+                          activeFilterCount > 0
+                            ? "Adjust or clear filters to see more."
+                            : "Credits, refunds, and lounge entries will appear here."
+                        }
+                      />
+                    ) : (
+                      txs.data!.rows.map((row) => (
+                        <TxRow key={row.id} row={row} onClick={() => setSelectedTxId(row.id)} />
+                      ))
+                    )}
+                  </TableBody>
+                </Table>
+              </div>
+
+              <div className="flex flex-col items-center justify-between gap-3 border-t border-arena-border pt-3 sm:flex-row">
+                <div className="text-xs text-muted-foreground">
+                  {total === 0
+                    ? "No transactions"
+                    : `Showing ${firstIdx.toLocaleString()}–${lastIdx.toLocaleString()} of ${total.toLocaleString()}`}
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className="text-xs text-muted-foreground">Rows</span>
+                  <Select
+                    value={String(search.pageSize)}
+                    onValueChange={(v) =>
+                      navigate({
+                        search: (prev: SearchState) => ({ ...prev, pageSize: Number(v), page: 1 }),
+                        replace: true,
+                      })
+                    }
+                  >
+                    <SelectTrigger className="h-8 w-[80px]">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {[10, 20, 50, 100].map((n) => (
+                        <SelectItem key={n} value={String(n)}>
+                          {n}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <div className="ml-2 flex items-center gap-1">
+                    <Button
+                      size="icon"
+                      variant="arenaGhost"
+                      onClick={() => gotoPage(1)}
+                      disabled={currentPage <= 1}
+                      aria-label="First page"
+                    >
+                      <ChevronsLeft className="h-4 w-4" />
+                    </Button>
+                    <Button
+                      size="icon"
+                      variant="arenaGhost"
+                      onClick={() => gotoPage(currentPage - 1)}
+                      disabled={currentPage <= 1}
+                      aria-label="Previous page"
+                    >
+                      <ChevronLeft className="h-4 w-4" />
+                    </Button>
+                    <span className="min-w-[80px] text-center text-xs text-muted-foreground">
+                      Page {currentPage} / {pageCount}
+                    </span>
+                    <Button
+                      size="icon"
+                      variant="arenaGhost"
+                      onClick={() => gotoPage(currentPage + 1)}
+                      disabled={currentPage >= pageCount}
+                      aria-label="Next page"
+                    >
+                      <ChevronRight className="h-4 w-4" />
+                    </Button>
+                    <Button
+                      size="icon"
+                      variant="arenaGhost"
+                      onClick={() => gotoPage(pageCount)}
+                      disabled={currentPage >= pageCount}
+                      aria-label="Last page"
+                    >
+                      <ChevronsRight className="h-4 w-4" />
+                    </Button>
+                  </div>
+                </div>
+              </div>
+            </section>
           </TabsContent>
 
           <TabsContent value="tips" className="mt-0">
-            <TipsTab
-              userId={user.id}
-              direction={search.tipDir}
-              page={search.tipPage}
-              pageSize={search.pageSize}
-              onDirectionChange={(v) =>
-                navigate({
-                  search: (prev: SearchState) => ({ ...prev, tipDir: v, tipPage: 1 }),
-                  replace: true,
-                })
-              }
-              onPageChange={(p) =>
-                navigate({
-                  search: (prev: SearchState) => ({ ...prev, tipPage: Math.max(1, p) }),
-                  replace: true,
-                })
-              }
-            />
+            <Suspense fallback={<div className="arena-card h-52 animate-pulse rounded-xl" />}>
+              <TipsTab
+                userId={user.id}
+                direction={search.tipDir}
+                page={search.tipPage}
+                pageSize={search.pageSize}
+                onDirectionChange={(v) =>
+                  navigate({
+                    search: (prev: SearchState) => ({ ...prev, tipDir: v, tipPage: 1 }),
+                    replace: true,
+                  })
+                }
+                onPageChange={(p) =>
+                  navigate({
+                    search: (prev: SearchState) => ({ ...prev, tipPage: Math.max(1, p) }),
+                    replace: true,
+                  })
+                }
+              />
+            </Suspense>
           </TabsContent>
         </Tabs>
       </div>
@@ -966,10 +1091,14 @@ function BalanceCard({
         <div className="pointer-events-none absolute inset-0 -z-10 bg-[image:var(--gradient-arena-glow)] opacity-70" />
       )}
       <div className="flex items-center justify-between">
-        <div className="text-[10px] font-bold uppercase tracking-[0.14em] text-muted-foreground">{label}</div>
+        <div className="text-[10px] font-bold uppercase tracking-[0.14em] text-muted-foreground">
+          {label}
+        </div>
         <Icon className={`h-4 w-4 ${tone ?? "text-arena-violet"}`} />
       </div>
-      <div className={`mt-2 font-display text-2xl font-extrabold tabular-nums ${tone ?? "text-white"}`}>
+      <div
+        className={`mt-2 font-display text-2xl font-extrabold tabular-nums ${tone ?? "text-white"}`}
+      >
         {loading ? <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" /> : value}
       </div>
     </div>
@@ -980,7 +1109,12 @@ function Chip({ label, onClear }: { label: string; onClear: () => void }) {
   return (
     <Badge variant="secondary" className="gap-1">
       {label}
-      <button type="button" onClick={onClear} aria-label={`Remove ${label}`} className="rounded hover:text-destructive">
+      <button
+        type="button"
+        onClick={onClear}
+        aria-label={`Remove ${label}`}
+        className="rounded hover:text-destructive"
+      >
         <X className="h-3 w-3" />
       </button>
     </Badge>
@@ -1103,7 +1237,9 @@ function TxDetailDrawer({
                 <div className="text-[10px] font-bold uppercase tracking-[0.14em] text-muted-foreground">
                   {meta.label}
                 </div>
-                <div className={`mt-1 font-display text-3xl font-extrabold tabular-nums ${meta.tone}`}>
+                <div
+                  className={`mt-1 font-display text-3xl font-extrabold tabular-nums ${meta.tone}`}
+                >
                   {meta.sign}
                   {fmtDollars(tx.amount_cents)}
                 </div>
@@ -1121,11 +1257,7 @@ function TxDetailDrawer({
                 <DetailField label="Amount (cents)" value={tx.amount_cents.toLocaleString()} mono />
                 <DetailField label="Memo" value={tx.memo} />
                 <DetailField label="External ref" value={tx.external_ref} mono />
-                <DetailField
-                  label="Lounge session"
-                  value={tx.lounge_session_id}
-                  mono
-                />
+                <DetailField label="Lounge session" value={tx.lounge_session_id} mono />
                 <DetailField label="Created at" value={fmtDateTime(tx.created_at)} />
               </div>
 
@@ -1152,9 +1284,7 @@ function TxDetailDrawer({
                         <div>
                           <div className="font-medium">{ls.lounge.name}</div>
                           {ls.lounge.tagline && (
-                            <div className="text-xs text-muted-foreground">
-                              {ls.lounge.tagline}
-                            </div>
+                            <div className="text-xs text-muted-foreground">{ls.lounge.tagline}</div>
                           )}
                         </div>
                       ) : (
@@ -1163,7 +1293,10 @@ function TxDetailDrawer({
                     }
                   />
                   <DetailField label="Session ID" value={ls.id} mono />
-                  <DetailField label="Status" value={<Badge variant="secondary">{ls.status}</Badge>} />
+                  <DetailField
+                    label="Status"
+                    value={<Badge variant="secondary">{ls.status}</Badge>}
+                  />
                   <DetailField label="Amount" value={fmtDollars(ls.amount_cents)} />
                   <DetailField label="Entered at" value={fmtDateTime(ls.entered_at)} />
                   <DetailField label="Paid at" value={fmtDateTime(ls.paid_at)} />

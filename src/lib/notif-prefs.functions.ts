@@ -1,13 +1,7 @@
 import { createServerFn } from "@tanstack/react-start";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 
-type Json =
-  | string
-  | number
-  | boolean
-  | null
-  | { [key: string]: Json | undefined }
-  | Json[];
+type Json = string | number | boolean | null | { [key: string]: Json | undefined } | Json[];
 
 /**
  * Fetch the caller's stored notification preferences blob. Returns null when
@@ -36,7 +30,7 @@ export const getMyNotifPrefs = createServerFn({ method: "GET" })
  */
 export const saveMyNotifPrefs = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
-  .inputValidator((input: { prefs: Json }) => {
+  .validator((input: { prefs: Json }) => {
     if (!input || typeof input !== "object" || input.prefs === undefined) {
       throw new Error("Invalid prefs payload");
     }
@@ -47,17 +41,14 @@ export const saveMyNotifPrefs = createServerFn({ method: "POST" })
   })
   .handler(async ({ data, context }) => {
     const { supabase, userId } = context;
-    const { error } = await supabase
-      .from("user_notification_prefs")
-      .upsert(
-        {
-          user_id: userId,
-          prefs: data.prefs as never,
-          updated_at: new Date().toISOString(),
-        },
-        { onConflict: "user_id" },
-      );
+    const { error } = await supabase.from("user_notification_prefs").upsert(
+      {
+        user_id: userId,
+        prefs: data.prefs as never,
+        updated_at: new Date().toISOString(),
+      },
+      { onConflict: "user_id" },
+    );
     if (error) throw new Error(error.message);
     return { ok: true as const };
   });
-

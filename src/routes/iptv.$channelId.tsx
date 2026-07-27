@@ -1,4 +1,6 @@
 import { useEffect, useMemo } from "react";
+import { useQuery } from "@tanstack/react-query";
+import { useServerFn } from "@tanstack/react-start";
 import { Link, createFileRoute } from "@tanstack/react-router";
 import { Star, ArrowLeft, Radio, Layers, Tv, ChevronRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -10,6 +12,7 @@ import { useIptvFavorites } from "@/hooks/useIptvFavorites";
 import { useIptvRecents } from "@/hooks/useIptvRecents";
 import { ChannelCard } from "@/components/iptv/ChannelCard";
 import { cn } from "@/lib/utils";
+import { getPublicIptvChannelPlayback } from "@/lib/iptv-provider.functions";
 
 export const Route = createFileRoute("/iptv/$channelId")({
   head: () => ({
@@ -25,10 +28,19 @@ function IptvChannelPage() {
   const { channelId } = Route.useParams();
   const { url, ready } = useIptvSettings();
   const { data: channels = [], isLoading } = useIptvPlaylist(ready ? url : "");
+  const getPlayback = useServerFn(getPublicIptvChannelPlayback);
   const { has, toggle } = useIptvFavorites();
   const { push } = useIptvRecents();
 
   const channel = channels.find((c) => c.id === channelId);
+  const isGlobalXtream = url === "global:xtream";
+  const playback = useQuery({
+    queryKey: ["iptv", "playback", channelId],
+    queryFn: () => getPlayback({ data: { channelId } }),
+    enabled: Boolean(channel && isGlobalXtream),
+    staleTime: 5 * 60 * 1000,
+  });
+  const playbackUrl = isGlobalXtream ? (playback.data?.url ?? "") : (channel?.url ?? "");
 
   useEffect(() => {
     if (channel) push(channel.id);
@@ -40,7 +52,7 @@ function IptvChannelPage() {
     return channels.filter((c) => c.group === channel.group && c.id !== channel.id).slice(0, 6);
   }, [channels, channel]);
 
-  if (isLoading) {
+  if (isLoading || (channel && isGlobalXtream && playback.isLoading)) {
     return (
       <div className="flex h-96 flex-col items-center justify-center gap-3 rounded-2xl border border-white/10 bg-card/30 p-8 backdrop-blur-md">
         <div className="h-8 w-8 animate-spin rounded-full border-2 border-primary border-t-transparent" />
@@ -66,13 +78,27 @@ function IptvChannelPage() {
     );
   }
 
+  if (playback.isError || !playbackUrl) {
+    return (
+      <div className="flex flex-col items-center justify-center rounded-2xl border border-destructive/30 bg-card/30 p-12 text-center">
+        <Tv className="h-10 w-10 text-destructive/70" />
+        <h3 className="mt-3 text-base font-semibold text-foreground">Stream unavailable</h3>
+        <p className="mt-1 text-xs text-muted-foreground">
+          {playback.error instanceof Error
+            ? playback.error.message
+            : "Could not prepare this channel for playback."}
+        </p>
+      </div>
+    );
+  }
+
   const fav = has(channel.id);
 
   return (
     <div className="flex flex-col gap-5 pb-8">
       {/* Video Player Box with Ambient Glow */}
       <div className="relative overflow-hidden rounded-2xl border border-white/10 bg-black shadow-2xl shadow-primary/10">
-        <IPTVPlayer url={channel.url ?? ""} poster={channel.logo} />
+        <IPTVPlayer url={playbackUrl} poster={channel.logo} />
       </div>
 
       {/* Live Channel Info Bar */}
@@ -94,8 +120,13 @@ function IptvChannelPage() {
           </div>
           <div className="min-w-0 flex-1">
             <div className="flex items-center gap-2">
-              <h2 className="truncate text-base font-bold text-foreground sm:text-lg">{channel.name}</h2>
-              <Badge variant="outline" className="border-red-500/40 bg-red-500/10 text-red-400 text-[10px] font-bold">
+              <h2 className="truncate text-base font-bold text-foreground sm:text-lg">
+                {channel.name}
+              </h2>
+              <Badge
+                variant="outline"
+                className="border-red-500/40 bg-red-500/10 text-red-400 text-[10px] font-bold"
+              >
                 <Radio className="mr-1 h-3 w-3 animate-pulse" />
                 LIVE
               </Badge>

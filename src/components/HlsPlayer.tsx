@@ -77,9 +77,7 @@ export function HlsPlayer({
     writeLS(LS_MUTED, muted);
   }, [muted]);
 
-
   const retry = useCallback(() => setNonce((n) => n + 1), []);
-
 
   // Attach source + wire event listeners whenever src / retry changes.
   useEffect(() => {
@@ -119,7 +117,6 @@ export function HlsPlayer({
       });
     };
 
-
     const onCanPlay = () => {
       markReady();
       tryPlay();
@@ -134,7 +131,11 @@ export function HlsPlayer({
     const onPause = () => setPlaying(false);
     const onMediaError = () => {
       if (cancelled) return;
-      setStatus({ kind: "error", message: "Playback failed — the stream may be offline or temporarily unavailable. Try Retry, or pick a different channel." });
+      setStatus({
+        kind: "error",
+        message:
+          "Playback failed — the stream may be offline or temporarily unavailable. Try Retry, or pick a different channel.",
+      });
     };
 
     video.addEventListener("canplay", onCanPlay);
@@ -185,7 +186,6 @@ export function HlsPlayer({
             ? "This stream can't be played in the browser. The source server doesn't send the CORS headers browsers require for cross-origin video, so playback is blocked before the manifest can load.\n\nWhat you can do:\n• Click Retry — the source may be temporarily offline.\n• Pick a different channel — many iptv-org streams have the same restriction.\n• Play it in a native player (VLC, mpv) where CORS doesn't apply."
             : `Playback error: ${data.details ?? data.type}. Try Retry, or pick a different channel.`,
         });
-
       });
 
       hls.loadSource(src);
@@ -232,7 +232,6 @@ export function HlsPlayer({
     }
   }, []);
 
-
   const toggleFullscreen = useCallback(() => {
     const el = containerRef.current;
     if (!el) return;
@@ -267,8 +266,7 @@ export function HlsPlayer({
     setShowQuality(false);
   };
 
-  const currentHeight =
-    currentLevel === -1 ? "Auto" : `${levels[currentLevel]?.height ?? "?"}p`;
+  const currentHeight = currentLevel === -1 ? "Auto" : `${levels[currentLevel]?.height ?? "?"}p`;
 
   return (
     <div
@@ -276,7 +274,6 @@ export function HlsPlayer({
       tabIndex={0}
       className={`group relative aspect-video w-full overflow-hidden rounded-md bg-black ring-1 ring-white/10 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary ${className}`}
     >
-      {/* eslint-disable-next-line jsx-a11y/media-has-caption */}
       <video
         ref={videoRef}
         autoPlay
@@ -316,7 +313,9 @@ export function HlsPlayer({
             if (!v) return;
             v.muted = true;
             setMuted(true);
-            v.play().then(() => setStatus({ kind: "ready" })).catch(() => {});
+            v.play()
+              .then(() => setStatus({ kind: "ready" }))
+              .catch(() => {});
           }}
           className="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-black/70 text-sm text-white transition hover:bg-black/60 focus:outline-none focus-visible:ring-2 focus-visible:ring-white/80"
           aria-label="Click to start playback"
@@ -344,7 +343,6 @@ export function HlsPlayer({
           </button>
         </div>
       )}
-
 
       {/* Controls bar — visible on hover / focus */}
       {src && status.kind !== "error" && (
@@ -422,7 +420,6 @@ export function HlsPlayer({
             >
               <Maximize className="h-4 w-4" />
             </button>
-
           </div>
         </div>
       )}

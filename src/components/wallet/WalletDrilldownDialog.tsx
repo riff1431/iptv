@@ -50,6 +50,12 @@ const TYPE_META: Record<
     icon: ArrowDownRight,
   },
   debit_tip: { label: "Tip", tone: "text-fuchsia-400", sign: "-", icon: ArrowDownRight },
+  debit_vip_upgrade: {
+    label: "VIP",
+    tone: "text-violet-400",
+    sign: "-",
+    icon: ArrowDownRight,
+  },
 };
 
 const CATEGORY_OPTIONS: { type: WalletTxType; label: string }[] = [
@@ -58,6 +64,7 @@ const CATEGORY_OPTIONS: { type: WalletTxType; label: string }[] = [
   { type: "debit_lounge_entry", label: "Lounge" },
   { type: "debit_match_entry", label: "Match" },
   { type: "debit_tip", label: "Tip" },
+  { type: "debit_vip_upgrade", label: "VIP" },
 ];
 
 type Direction = "all" | "credit" | "debit";
@@ -101,7 +108,6 @@ export function WalletDrilldownDialog({
     setPage(1);
   }, [open, target]);
 
-
   const q = useQuery({
     queryKey: [
       "wallet",
@@ -129,7 +135,7 @@ export function WalletDrilldownDialog({
     return Math.round(n * 100);
   }, [minAmount]);
 
-  const allRows = q.data?.rows ?? [];
+  const allRows = useMemo(() => q.data?.rows ?? [], [q.data?.rows]);
 
   const rows = useMemo(() => {
     return allRows.filter((r) => {
@@ -152,8 +158,7 @@ export function WalletDrilldownDialog({
       if (sortBy === "amount") {
         cmp = a.amount_cents - b.amount_cents;
       } else {
-        cmp =
-          new Date(a.created_at).getTime() - new Date(b.created_at).getTime();
+        cmp = new Date(a.created_at).getTime() - new Date(b.created_at).getTime();
       }
       return sortDir === "asc" ? cmp : -cmp;
     });
@@ -182,7 +187,6 @@ export function WalletDrilldownDialog({
   useEffect(() => {
     setPage(1);
   }, [categories, direction, minCents, sortBy, sortDir, pageSize]);
-
 
   function toggleCategory(t: WalletTxType) {
     setCategories((prev) => {
@@ -227,11 +231,8 @@ export function WalletDrilldownDialog({
               </button>
             )}
           </DialogTitle>
-          <DialogDescription>
-            {target?.subtitle ?? "Transactions in this range."}
-          </DialogDescription>
+          <DialogDescription>{target?.subtitle ?? "Transactions in this range."}</DialogDescription>
         </DialogHeader>
-
 
         <div className="space-y-2 rounded-md border border-arena-border bg-arena-panel-2/40 p-2.5">
           <div className="flex items-center justify-between">
@@ -438,9 +439,7 @@ export function WalletDrilldownDialog({
                           })}
                         </span>
                       </div>
-                      {r.memo && (
-                        <p className="mt-0.5 line-clamp-2 text-white/80">{r.memo}</p>
-                      )}
+                      {r.memo && <p className="mt-0.5 line-clamp-2 text-white/80">{r.memo}</p>}
                       {r.external_ref && !r.memo && (
                         <p className="mt-0.5 truncate text-muted-foreground">
                           Ref: {r.external_ref}
@@ -487,7 +486,6 @@ export function WalletDrilldownDialog({
             </div>
           </div>
         )}
-
       </DialogContent>
     </Dialog>
   );

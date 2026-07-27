@@ -14,6 +14,7 @@ export interface AdminUserRow {
   roles: AppRole[];
   is_creator?: boolean;
   is_vip?: boolean;
+  vip_expires_at?: string | null;
 }
 
 async function assertAdmin(context: { supabase: any; userId: string }) {
@@ -43,7 +44,10 @@ export const listAdminUsers = createServerFn({ method: "GET" })
     const [{ data: roles, error: rolesErr }, { data: profiles, error: profErr }] =
       await Promise.all([
         supabaseAdmin.from("user_roles").select("user_id, role").in("user_id", ids),
-        supabaseAdmin.from("profiles").select("id, display_name").in("id", ids),
+        supabaseAdmin
+          .from("profiles")
+          .select("id, display_name, is_vip, vip_expires_at")
+          .in("id", ids),
       ]);
     if (rolesErr) throw new Error(rolesErr.message);
     if (profErr) throw new Error(profErr.message);
@@ -58,6 +62,18 @@ export const listAdminUsers = createServerFn({ method: "GET" })
     (profiles ?? []).forEach((p: { id: string; display_name: string | null }) =>
       nameMap.set(p.id, p.display_name),
     );
+    const vipMap = new Map(
+      (profiles ?? []).map((profile) => [
+        profile.id,
+        {
+          isVip:
+            profile.is_vip &&
+            profile.vip_expires_at !== null &&
+            new Date(profile.vip_expires_at).getTime() > Date.now(),
+          expiresAt: profile.vip_expires_at,
+        },
+      ]),
+    );
 
     return users
       .map((u) => ({
@@ -69,7 +85,8 @@ export const listAdminUsers = createServerFn({ method: "GET" })
         display_name: nameMap.get(u.id) ?? null,
         roles: roleMap.get(u.id) ?? [],
         is_creator: u.user_metadata?.is_creator === true,
-        is_vip: u.user_metadata?.is_vip === true,
+        is_vip: vipMap.get(u.id)?.isVip ?? false,
+        vip_expires_at: vipMap.get(u.id)?.expiresAt ?? null,
       }))
       .sort((a, b) => (a.created_at < b.created_at ? 1 : -1));
   });
@@ -82,7 +99,7 @@ const updateRoleInput = z.object({
 
 export const updateUserRole = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
-  .inputValidator((data: unknown) => updateRoleInput.parse(data))
+  .validator((data: unknown) => updateRoleInput.parse(data))
   .handler(async ({ data, context }) => {
     await assertAdmin(context);
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
@@ -114,7 +131,7 @@ const resetInput = z.object({
 
 export const adminSendPasswordReset = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
-  .inputValidator((data: unknown) => resetInput.parse(data))
+  .validator((data: unknown) => resetInput.parse(data))
   .handler(async ({ data, context }) => {
     await assertAdmin(context);
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
@@ -156,7 +173,7 @@ export interface AdminCreditWalletResult {
  */
 export const adminCreditUserWallet = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
-  .inputValidator((data: unknown) => creditWalletInput.parse(data))
+  .validator((data: unknown) => creditWalletInput.parse(data))
   .handler(async ({ data, context }): Promise<AdminCreditWalletResult> => {
     await assertAdmin(context);
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
@@ -239,7 +256,7 @@ const updateMetadataInput = z.object({
 
 export const updateUserMetadata = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
-  .inputValidator((data: unknown) => updateMetadataInput.parse(data))
+  .validator((data: unknown) => updateMetadataInput.parse(data))
   .handler(async ({ data, context }) => {
     await assertAdmin(context);
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
@@ -253,10 +270,23 @@ export const updateUserMetadata = createServerFn({ method: "POST" })
     }
 
     const currentMeta = userObj.user.user_metadata || {};
+    const vipExpiresAt =
+      data.field === "is_vip" && data.value
+        ? new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString()
+        : null;
     const updatedMeta = {
       ...currentMeta,
       [data.field]: data.value,
+      ...(data.field === "is_vip" ? { vip_expires_at: vipExpiresAt } : {}),
     };
+
+    if (data.field === "is_vip") {
+      const { error: profileError } = await supabaseAdmin
+        .from("profiles")
+        .update({ is_vip: data.value, vip_expires_at: vipExpiresAt })
+        .eq("id", data.userId);
+      if (profileError) throw new Error(profileError.message);
+    }
 
     const { error: updateErr } = await supabaseAdmin.auth.admin.updateUserById(data.userId, {
       user_metadata: updatedMeta,

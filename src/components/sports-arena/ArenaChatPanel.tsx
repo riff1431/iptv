@@ -101,10 +101,14 @@ export function ArenaChatPanel({
       .select("id, display_name, avatar_url")
       .in("id", missing)
       .then(({ data }) => {
-        if (!data) return;
         setProfiles((cur) => {
           const next = { ...cur };
-          for (const p of data) {
+          // Cache a deterministic fallback for IDs with no profile row so the
+          // effect does not retry the same empty lookup on every render.
+          for (const id of missing) {
+            next[id] = { name: id.slice(0, 6), avatarUrl: null };
+          }
+          for (const p of data ?? []) {
             next[p.id] = {
               name: p.display_name ?? p.id.slice(0, 6),
               avatarUrl: p.avatar_url ?? null,
@@ -242,13 +246,15 @@ export function ArenaChatPanel({
           const profile = profiles[m.user_id];
           const name = profile?.name ?? m.user_id.slice(0, 6);
           const avatarUrl = profile?.avatarUrl ?? null;
-          const initials = name
-            .split(/\s+/)
-            .map((s) => s[0])
-            .filter(Boolean)
-            .slice(0, 2)
-            .join("")
-            .toUpperCase();
+          const nameParts = name.split(/\s+/).filter(Boolean);
+          const initials =
+            nameParts.length > 1
+              ? nameParts
+                  .slice(0, 2)
+                  .map((part) => part[0])
+                  .join("")
+                  .toUpperCase()
+              : name.slice(0, 2).toUpperCase();
           const isHost = name.toLowerCase().includes("host") || name === "PlayGroundX";
           const isOwn = user?.id === m.user_id;
           return (

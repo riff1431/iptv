@@ -21,7 +21,7 @@ const switchInput = z.object({
 
 export const startLoungeStream = createServerFn({ method: "POST" })
   .middleware([requireAdminServer])
-  .inputValidator((d: unknown) => tvIdInput.parse(d))
+  .validator((d: unknown) => tvIdInput.parse(d))
   .handler(async ({ data, context }) => {
     const { data: tv, error } = await context.supabase
       .from("tvs")
@@ -32,19 +32,17 @@ export const startLoungeStream = createServerFn({ method: "POST" })
     if (!tv) throw new Error("TV not found");
     if (!tv.selected_channel_id) throw new Error("Select a channel before starting");
 
-    const { error: upsertErr } = await context.supabase
-      .from("tv_stream_sessions")
-      .upsert(
-        {
-          tv_id: tv.id,
-          status: "live",
-          channel_id: tv.selected_channel_id,
-          started_at: new Date().toISOString(),
-          stopped_at: null,
-          last_error: null,
-        },
-        { onConflict: "tv_id" },
-      );
+    const { error: upsertErr } = await context.supabase.from("tv_stream_sessions").upsert(
+      {
+        tv_id: tv.id,
+        status: "live",
+        channel_id: tv.selected_channel_id,
+        started_at: new Date().toISOString(),
+        stopped_at: null,
+        last_error: null,
+      },
+      { onConflict: "tv_id" },
+    );
     if (upsertErr) throw new Error(upsertErr.message);
 
     // Evict any stale cache from a previous run.
@@ -55,18 +53,16 @@ export const startLoungeStream = createServerFn({ method: "POST" })
 
 export const stopLoungeStream = createServerFn({ method: "POST" })
   .middleware([requireAdminServer])
-  .inputValidator((d: unknown) => tvIdInput.parse(d))
+  .validator((d: unknown) => tvIdInput.parse(d))
   .handler(async ({ data, context }) => {
-    const { error } = await context.supabase
-      .from("tv_stream_sessions")
-      .upsert(
-        {
-          tv_id: data.tvId,
-          status: "stopped",
-          stopped_at: new Date().toISOString(),
-        },
-        { onConflict: "tv_id" },
-      );
+    const { error } = await context.supabase.from("tv_stream_sessions").upsert(
+      {
+        tv_id: data.tvId,
+        status: "stopped",
+        stopped_at: new Date().toISOString(),
+      },
+      { onConflict: "tv_id" },
+    );
     if (error) throw new Error(error.message);
 
     const { evictTvCache } = await import("@/lib/stream-session.server");
@@ -76,7 +72,7 @@ export const stopLoungeStream = createServerFn({ method: "POST" })
 
 export const switchChannel = createServerFn({ method: "POST" })
   .middleware([requireAdminServer])
-  .inputValidator((d: unknown) => switchInput.parse(d))
+  .validator((d: unknown) => switchInput.parse(d))
   .handler(async ({ data, context }) => {
     const { error: tvErr } = await context.supabase
       .from("tvs")
@@ -89,19 +85,17 @@ export const switchChannel = createServerFn({ method: "POST" })
       .eq("id", data.tvId);
     if (tvErr) throw new Error(tvErr.message);
 
-    await context.supabase
-      .from("tv_stream_sessions")
-      .upsert(
-        {
-          tv_id: data.tvId,
-          channel_id: data.channelId,
-          status: "live",
-          started_at: new Date().toISOString(),
-          stopped_at: null,
-          last_error: null,
-        },
-        { onConflict: "tv_id" },
-      );
+    await context.supabase.from("tv_stream_sessions").upsert(
+      {
+        tv_id: data.tvId,
+        channel_id: data.channelId,
+        status: "live",
+        started_at: new Date().toISOString(),
+        stopped_at: null,
+        last_error: null,
+      },
+      { onConflict: "tv_id" },
+    );
 
     const { evictTvCache } = await import("@/lib/stream-session.server");
     evictTvCache(data.tvId);
@@ -116,12 +110,17 @@ export type StreamHealth = {
     lastPlaylistFetchAt: string | null;
     lastError: string | null;
   } | null;
-  recent: Array<{ checkedAt: string; status: string; latencyMs: number | null; error: string | null }>;
+  recent: Array<{
+    checkedAt: string;
+    status: string;
+    latencyMs: number | null;
+    error: string | null;
+  }>;
 };
 
 export const getStreamHealth = createServerFn({ method: "GET" })
   .middleware([requireAdminServer])
-  .inputValidator((d: unknown) => tvIdInput.parse(d))
+  .validator((d: unknown) => tvIdInput.parse(d))
   .handler(async ({ data, context }): Promise<StreamHealth> => {
     const [{ data: session }, { data: rows }] = await Promise.all([
       context.supabase

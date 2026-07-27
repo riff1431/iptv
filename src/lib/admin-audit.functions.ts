@@ -20,7 +20,7 @@ const inputSchema = z.object({
  */
 export const logAdminAccess = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
-  .inputValidator((input: unknown) => inputSchema.parse(input))
+  .validator((input: unknown) => inputSchema.parse(input))
   .handler(async ({ data, context }) => {
     const { supabase, userId, claims } = context;
     const email = (claims?.email as string | undefined) ?? null;

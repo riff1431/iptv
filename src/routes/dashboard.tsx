@@ -1,6 +1,7 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
 import { useEffect, useMemo, useState } from "react";
+import { useVipStatus } from "@/hooks/useVipStatus";
 import {
   Activity,
   ArrowDownRight,
@@ -56,7 +57,6 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { sendTestNotification } from "@/lib/notifications.functions";
 
-
 export const Route = createFileRoute("/dashboard")({
   ssr: false,
   head: () => ({
@@ -94,40 +94,35 @@ function useUserDashboard(userId: string | undefined) {
     enabled: !!userId,
     queryKey: ["user", "dashboard", userId],
     queryFn: async () => {
-      const since30 = new Date(
-        Date.now() - 30 * 24 * 3600_000,
-      ).toISOString();
+      const since30 = new Date(Date.now() - 30 * 24 * 3600_000).toISOString();
 
-      const [wallet, hostedMatches, sessions, notifications] =
-        await Promise.all([
-          supabase
-            .from("wallet_transactions")
-            .select("id,type,amount_cents,memo,created_at,match_id,lounge_id")
-            .eq("user_id", userId!)
-            .order("created_at", { ascending: false })
-            .limit(50),
-          supabase
-            .from("matches")
-            .select(
-              "id,title,sport,status,starts_at,created_at,thumbnail_url,is_active",
-            )
-            .eq("owner_id", userId!)
-            .order("created_at", { ascending: false })
-            .limit(10),
-          supabase
-            .from("lounge_sessions")
-            .select("id,lounge_id,amount_cents,entered_at,created_at")
-            .eq("user_id", userId!)
-            .gte("created_at", since30)
-            .order("created_at", { ascending: false })
-            .limit(20),
-          supabase
-            .from("notifications")
-            .select("id,kind,title,body,created_at,link")
-            .eq("user_id", userId!)
-            .order("created_at", { ascending: false })
-            .limit(10),
-        ]);
+      const [wallet, hostedMatches, sessions, notifications] = await Promise.all([
+        supabase
+          .from("wallet_transactions")
+          .select("id,type,amount_cents,memo,created_at,match_id,lounge_id")
+          .eq("user_id", userId!)
+          .order("created_at", { ascending: false })
+          .limit(50),
+        supabase
+          .from("matches")
+          .select("id,title,sport,status,starts_at,created_at,thumbnail_url,is_active")
+          .eq("owner_id", userId!)
+          .order("created_at", { ascending: false })
+          .limit(10),
+        supabase
+          .from("lounge_sessions")
+          .select("id,lounge_id,amount_cents,entered_at,created_at")
+          .eq("user_id", userId!)
+          .gte("created_at", since30)
+          .order("created_at", { ascending: false })
+          .limit(20),
+        supabase
+          .from("notifications")
+          .select("id,kind,title,body,created_at,link")
+          .eq("user_id", userId!)
+          .order("created_at", { ascending: false })
+          .limit(10),
+      ]);
 
       return {
         wallet: wallet.data ?? [],
@@ -158,18 +153,10 @@ function StatCard({
 }) {
   return (
     <div className="relative overflow-hidden rounded-2xl border border-arena-border bg-arena-panel p-5">
-      <div
-        className={cn(
-          "pointer-events-none absolute inset-0 -z-10 opacity-40",
-          glow,
-        )}
-      />
+      <div className={cn("pointer-events-none absolute inset-0 -z-10 opacity-40", glow)} />
       <div className="flex items-start gap-3">
         <div
-          className={cn(
-            "grid h-12 w-12 shrink-0 place-items-center rounded-full ring-1",
-            accent,
-          )}
+          className={cn("grid h-12 w-12 shrink-0 place-items-center rounded-full ring-1", accent)}
         >
           <Icon className="h-5 w-5" />
         </div>
@@ -180,9 +167,7 @@ function StatCard({
           <div className="mt-1 font-display text-2xl font-extrabold tracking-tight text-white">
             {value}
           </div>
-          {sub && (
-            <div className="mt-1 text-[11px] text-muted-foreground">{sub}</div>
-          )}
+          {sub && <div className="mt-1 text-[11px] text-muted-foreground">{sub}</div>}
         </div>
       </div>
     </div>
@@ -201,12 +186,7 @@ function Panel({
   className?: string;
 }) {
   return (
-    <div
-      className={cn(
-        "rounded-2xl border border-arena-border bg-arena-panel p-5",
-        className,
-      )}
-    >
+    <div className={cn("rounded-2xl border border-arena-border bg-arena-panel p-5", className)}>
       <div className="mb-4 flex items-center justify-between gap-3">
         <div className="font-display text-lg font-bold text-white">{title}</div>
         {action}
@@ -224,6 +204,7 @@ function walletDirection(type: string): {
   const debit =
     type === "debit_lounge_entry" ||
     type === "debit_match_entry" ||
+    type === "debit_vip_upgrade" ||
     type === "debit_tip";
   return debit
     ? { sign: -1, color: "text-rose-400", Icon: ArrowUpRight }
@@ -238,6 +219,8 @@ function walletLabel(type: string) {
       return "Lounge entry";
     case "debit_match_entry":
       return "Match entry";
+    case "debit_vip_upgrade":
+      return "VIP membership";
     case "debit_tip":
       return "Tip sent";
     default:
@@ -287,9 +270,7 @@ function TransactionHistoryTable({ userId }: { userId: string | undefined }) {
   // Compute running balance across ALL transactions (chronological order),
   // then filter for display so "balance after" reflects true history.
   const withRunning = useMemo(() => {
-    const asc = [...txs].sort((a, b) =>
-      a.created_at < b.created_at ? -1 : 1,
-    );
+    const asc = [...txs].sort((a, b) => (a.created_at < b.created_at ? -1 : 1));
     let bal = 0;
     const map = new Map<string, number>();
     for (const t of asc) {
@@ -324,8 +305,7 @@ function TransactionHistoryTable({ userId }: { userId: string | undefined }) {
       if (fromTs !== null && ts < fromTs) return false;
       if (toTs !== null && ts > toTs) return false;
       if (needle) {
-        const hay =
-          `${walletLabel(t.type)} ${t.memo ?? ""} ${t.type}`.toLowerCase();
+        const hay = `${walletLabel(t.type)} ${t.memo ?? ""} ${t.type}`.toLowerCase();
         if (!hay.includes(needle)) return false;
       }
       return true;
@@ -358,16 +338,10 @@ function TransactionHistoryTable({ userId }: { userId: string | undefined }) {
       action={
         <div className="flex items-center gap-3 text-[11px] text-muted-foreground">
           <span>
-            <span className="text-emerald-400 font-mono font-semibold">
-              +{money(totalIn)}
-            </span>{" "}
-            in
+            <span className="text-emerald-400 font-mono font-semibold">+{money(totalIn)}</span> in
           </span>
           <span>
-            <span className="text-rose-400 font-mono font-semibold">
-              -{money(totalOut)}
-            </span>{" "}
-            out
+            <span className="text-rose-400 font-mono font-semibold">-{money(totalOut)}</span> out
           </span>
           <span className="hidden sm:inline">· {filtered.length} rows</span>
         </div>
@@ -448,17 +422,12 @@ function TransactionHistoryTable({ userId }: { userId: string | undefined }) {
       {isLoading ? (
         <div className="space-y-2">
           {Array.from({ length: 5 }).map((_, i) => (
-            <div
-              key={i}
-              className="h-10 animate-pulse rounded-lg bg-arena-bg/60"
-            />
+            <div key={i} className="h-10 animate-pulse rounded-lg bg-arena-bg/60" />
           ))}
         </div>
       ) : filtered.length === 0 ? (
         <div className="rounded-lg border border-dashed border-arena-border p-8 text-center text-xs text-muted-foreground">
-          {txs.length === 0
-            ? "No transactions yet."
-            : "No transactions match your filters."}
+          {txs.length === 0 ? "No transactions yet." : "No transactions match your filters."}
         </div>
       ) : (
         <div className="overflow-x-auto rounded-lg border border-arena-border/60">
@@ -478,14 +447,9 @@ function TransactionHistoryTable({ userId }: { userId: string | undefined }) {
                 const Icon = dir.Icon;
                 const d = new Date(t.created_at);
                 return (
-                  <tr
-                    key={t.id}
-                    className="transition hover:bg-arena-bg/40"
-                  >
+                  <tr key={t.id} className="transition hover:bg-arena-bg/40">
                     <td className="whitespace-nowrap px-3 py-2 text-muted-foreground">
-                      <div className="text-white/85">
-                        {d.toLocaleDateString()}
-                      </div>
+                      <div className="text-white/85">{d.toLocaleDateString()}</div>
                       <div className="text-[10px]">
                         {d.toLocaleTimeString([], {
                           hour: "2-digit",
@@ -503,9 +467,7 @@ function TransactionHistoryTable({ userId }: { userId: string | undefined }) {
                         >
                           <Icon className="h-3 w-3" />
                         </span>
-                        <span className="font-medium text-white/90">
-                          {walletLabel(t.type)}
-                        </span>
+                        <span className="font-medium text-white/90">{walletLabel(t.type)}</span>
                       </span>
                     </td>
                     <td className="max-w-[280px] truncate px-3 py-2 text-muted-foreground">
@@ -553,10 +515,7 @@ type FeedItem = {
   accent: string;
 };
 
-const CATEGORY_META: Record<
-  ActivityCategory,
-  { label: string; color: string; ring: string }
-> = {
+const CATEGORY_META: Record<ActivityCategory, { label: string; color: string; ring: string }> = {
   hosted: {
     label: "Hosted",
     color: "text-arena-cyan",
@@ -635,10 +594,7 @@ function ActivityFeed({
     for (const m of hosted) {
       out.push({
         id: `h-${m.id}`,
-        title:
-          m.status === "live"
-            ? `Your match is LIVE: ${m.title}`
-            : `You hosted ${m.title}`,
+        title: m.status === "live" ? `Your match is LIVE: ${m.title}` : `You hosted ${m.title}`,
         detail: `${m.sport ?? "match"} · ${m.status}`,
         at: m.created_at,
         category: "hosted",
@@ -652,9 +608,7 @@ function ActivityFeed({
       out.push({
         id: `s-${s.id}`,
         title: "Joined a lounge",
-        detail: s.amount_cents
-          ? `Paid ${money(Math.abs(s.amount_cents))}`
-          : "Free entry",
+        detail: s.amount_cents ? `Paid ${money(Math.abs(s.amount_cents))}` : "Free entry",
         at: s.entered_at ?? s.created_at,
         category: "joined",
         icon: Building2,
@@ -666,20 +620,22 @@ function ActivityFeed({
     for (const w of wallet) {
       const memo = (w.memo ?? "").toLowerCase();
       const dir = walletDirection(w.type);
-      const amount = `${dir.sign === -1 ? "-" : "+"}${money(
-        Math.abs(w.amount_cents ?? 0),
-      )}`;
+      const amount = `${dir.sign === -1 ? "-" : "+"}${money(Math.abs(w.amount_cents ?? 0))}`;
 
       if (
         w.type === "debit_lounge_entry" ||
-        w.type === "debit_match_entry"
+        w.type === "debit_match_entry" ||
+        w.type === "debit_vip_upgrade"
       ) {
+        const title =
+          w.type === "debit_lounge_entry"
+            ? "Lounge entry paid"
+            : w.type === "debit_match_entry"
+              ? "Match entry paid"
+              : "VIP membership activated";
         out.push({
           id: `w-${w.id}`,
-          title:
-            w.type === "debit_lounge_entry"
-              ? "Lounge entry paid"
-              : "Match entry paid",
+          title,
           detail: `${amount}${w.memo ? ` · ${w.memo}` : ""}`,
           at: w.created_at,
           category: "joined",
@@ -724,8 +680,10 @@ function ActivityFeed({
       } else if (kind === "tip" || kind === "wallet") {
         const body = (n.body ?? "").toLowerCase();
         category =
-          body.includes("received") || body.includes("won") ||
-          body.includes("credit") || body.includes("approved")
+          body.includes("received") ||
+          body.includes("won") ||
+          body.includes("credit") ||
+          body.includes("approved")
             ? "winnings"
             : "joined";
         Icon = kind === "tip" ? Heart : CircleDollarSign;
@@ -847,10 +805,7 @@ function ActivityFeed({
       {isLoading ? (
         <div className="space-y-2">
           {Array.from({ length: 4 }).map((_, i) => (
-            <div
-              key={i}
-              className="h-12 animate-pulse rounded-lg bg-arena-bg/60"
-            />
+            <div key={i} className="h-12 animate-pulse rounded-lg bg-arena-bg/60" />
           ))}
         </div>
       ) : filtered.length === 0 ? (
@@ -863,10 +818,7 @@ function ActivityFeed({
             const Icon = a.icon;
             const meta = CATEGORY_META[a.category];
             return (
-              <li
-                key={a.id}
-                className="flex items-center gap-3 py-2.5 text-xs"
-              >
+              <li key={a.id} className="flex items-center gap-3 py-2.5 text-xs">
                 <span
                   className={cn(
                     "grid h-8 w-8 shrink-0 place-items-center rounded-full bg-arena-bg/60 ring-1",
@@ -877,25 +829,16 @@ function ActivityFeed({
                   <Icon className="h-4 w-4" />
                 </span>
                 <div className="min-w-0 flex-1">
-                  <div className="truncate text-sm font-medium text-white/90">
-                    {a.title}
-                  </div>
-                  <div className="truncate text-[11px] text-muted-foreground">
-                    {a.detail}
-                  </div>
+                  <div className="truncate text-sm font-medium text-white/90">{a.title}</div>
+                  <div className="truncate text-[11px] text-muted-foreground">{a.detail}</div>
                 </div>
                 <div className="flex flex-col items-end gap-0.5">
                   <span
-                    className={cn(
-                      "text-[9px] font-bold uppercase tracking-widest",
-                      meta.color,
-                    )}
+                    className={cn("text-[9px] font-bold uppercase tracking-widest", meta.color)}
                   >
                     {meta.label}
                   </span>
-                  <span className="text-[11px] text-muted-foreground">
-                    {timeAgo(a.at)}
-                  </span>
+                  <span className="text-[11px] text-muted-foreground">{timeAgo(a.at)}</span>
                 </div>
               </li>
             );
@@ -910,6 +853,8 @@ function ActivityFeed({
 
 function DashboardPage() {
   const { user, roles, isAdmin, isModerator } = useAuth();
+  const { data: vipStatus } = useVipStatus(user?.id);
+  const isVip = vipStatus?.isVip === true;
 
   const { data, isLoading } = useUserDashboard(user?.id);
 
@@ -934,9 +879,7 @@ function DashboardPage() {
     .reduce((s, w) => s + Math.abs(w.amount_cents ?? 0), 0);
 
   const tipsReceived = wallet
-    .filter(
-      (w) => w.type === "credit" && (w.memo?.toLowerCase().includes("tip") ?? false),
-    )
+    .filter((w) => w.type === "credit" && (w.memo?.toLowerCase().includes("tip") ?? false))
     .reduce((s, w) => s + Math.abs(w.amount_cents ?? 0), 0);
 
   const sessionsCount = data?.sessions.length ?? 0;
@@ -957,14 +900,18 @@ function DashboardPage() {
                 </div>
                 <h1 className="mt-1 flex items-center gap-2 font-display text-2xl font-extrabold uppercase tracking-tight text-white sm:text-3xl">
                   Welcome back, {displayName}
-                  {isAdmin && (
-                    <Crown className="h-5 w-5 text-amber-400" />
+                  {isAdmin && <Crown className="h-5 w-5 text-amber-400" />}
+                  {isVip && !isAdmin && (
+                    <Crown className="h-5 w-5 text-amber-400" aria-label="VIP member" />
                   )}
                 </h1>
-                <p className="mt-1 text-xs text-muted-foreground">
-                  {user?.email}
-                </p>
+                <p className="mt-1 text-xs text-muted-foreground">{user?.email}</p>
                 <div className="mt-3 flex flex-wrap gap-1.5">
+                  {isVip && (
+                    <Badge className="border-amber-400/40 bg-amber-400/10 text-amber-300">
+                      VIP
+                    </Badge>
+                  )}
                   {roles.length === 0 ? (
                     <Badge variant="outline">Member</Badge>
                   ) : (
@@ -972,11 +919,7 @@ function DashboardPage() {
                       <Badge
                         key={r}
                         variant={
-                          r === "admin"
-                            ? "default"
-                            : r === "moderator"
-                              ? "secondary"
-                              : "outline"
+                          r === "admin" ? "default" : r === "moderator" ? "secondary" : "outline"
                         }
                       >
                         {r}
@@ -1049,8 +992,7 @@ function DashboardPage() {
             <Panel
               title={
                 <span className="flex items-center gap-2">
-                  <WalletIcon className="h-4 w-4 text-emerald-400" /> Wallet
-                  Snapshot
+                  <WalletIcon className="h-4 w-4 text-emerald-400" /> Wallet Snapshot
                 </span>
               }
               action={
@@ -1090,10 +1032,7 @@ function DashboardPage() {
                 {isLoading ? (
                   <div className="space-y-2">
                     {Array.from({ length: 3 }).map((_, i) => (
-                      <div
-                        key={i}
-                        className="h-10 animate-pulse rounded-lg bg-arena-bg/60"
-                      />
+                      <div key={i} className="h-10 animate-pulse rounded-lg bg-arena-bg/60" />
                     ))}
                   </div>
                 ) : wallet.length === 0 ? (
@@ -1128,12 +1067,7 @@ function DashboardPage() {
                               </div>
                             </div>
                           </div>
-                          <div
-                            className={cn(
-                              "font-mono text-sm font-bold",
-                              dir.color,
-                            )}
-                          >
+                          <div className={cn("font-mono text-sm font-bold", dir.color)}>
                             {dir.sign === -1 ? "-" : "+"}
                             {money(Math.abs(w.amount_cents ?? 0))}
                           </div>
@@ -1148,8 +1082,7 @@ function DashboardPage() {
             <Panel
               title={
                 <span className="flex items-center gap-2">
-                  <Building2 className="h-4 w-4 text-arena-cyan" /> My Hosted
-                  Matches
+                  <Building2 className="h-4 w-4 text-arena-cyan" /> My Hosted Matches
                 </span>
               }
               action={
@@ -1164,10 +1097,7 @@ function DashboardPage() {
               {isLoading ? (
                 <div className="space-y-2">
                   {Array.from({ length: 3 }).map((_, i) => (
-                    <div
-                      key={i}
-                      className="h-14 animate-pulse rounded-lg bg-arena-bg/60"
-                    />
+                    <div key={i} className="h-14 animate-pulse rounded-lg bg-arena-bg/60" />
                   ))}
                 </div>
               ) : hosted.length === 0 ? (
@@ -1227,7 +1157,6 @@ function DashboardPage() {
                     </li>
                   ))}
                 </ul>
-
               )}
             </Panel>
           </div>
@@ -1252,9 +1181,6 @@ function DashboardPage() {
           <div className="mt-6">
             <NotificationPreferencesPanel userId={user?.id} />
           </div>
-
-
-
 
           {/* Quick links row */}
           <div className="mt-6 grid grid-cols-2 gap-3 sm:grid-cols-4">
@@ -1345,7 +1271,6 @@ function formatSyncedAbsolute(iso: string | null): string {
   }
 }
 
-
 const CATEGORIES: {
   key: NotifPrefKey;
   title: string;
@@ -1397,7 +1322,6 @@ const CATEGORIES: {
   },
 ];
 
-
 function Toggle({
   checked,
   onChange,
@@ -1431,25 +1355,13 @@ function Toggle({
   );
 }
 
-function NotificationPreferencesPanel({
-  userId,
-}: {
-  userId: string | undefined;
-}) {
-  const {
-    prefs,
-    setPrefs,
-    hydrated,
-    saveStatus,
-    saveError,
-    lastSyncedAt,
-    retrySave,
-  } = useNotifPrefs(userId);
+function NotificationPreferencesPanel({ userId }: { userId: string | undefined }) {
+  const { prefs, setPrefs, hydrated, saveStatus, saveError, lastSyncedAt, retrySave } =
+    useNotifPrefs(userId);
   const lastSyncedLabel = useRelativeTime(lastSyncedAt);
 
   const enabledCount = Object.values(prefs.categories).filter(Boolean).length;
-  const anyChannel =
-    prefs.channels.inApp || prefs.channels.email || prefs.channels.push;
+  const anyChannel = prefs.channels.inApp || prefs.channels.email || prefs.channels.push;
 
   const push = usePushPermission();
 
@@ -1463,10 +1375,7 @@ function NotificationPreferencesPanel({
 
   const setCategory = (key: NotifPrefKey, v: boolean) =>
     setPrefs((p) => ({ ...p, categories: { ...p.categories, [key]: v } }));
-  const setChannel = async (
-    key: keyof NotifPrefs["channels"],
-    v: boolean,
-  ) => {
+  const setChannel = async (key: keyof NotifPrefs["channels"], v: boolean) => {
     if (key === "push" && v) {
       if (!push.supported) {
         toast.error("Push not supported", {
@@ -1519,12 +1428,9 @@ function NotificationPreferencesPanel({
         : "Signed-out — saved to this device only.",
     });
   };
-  const resetCategories = () =>
-    setPrefs((p) => ({ ...p, categories: DEFAULT_PREFS.categories }));
+  const resetCategories = () => setPrefs((p) => ({ ...p, categories: DEFAULT_PREFS.categories }));
 
-  const isDefault =
-    JSON.stringify(prefs) === JSON.stringify(DEFAULT_PREFS);
-
+  const isDefault = JSON.stringify(prefs) === JSON.stringify(DEFAULT_PREFS);
 
   return (
     <Panel
@@ -1584,8 +1490,7 @@ function NotificationPreferencesPanel({
               <AlertDialogHeader>
                 <AlertDialogTitle>Reset notification preferences?</AlertDialogTitle>
                 <AlertDialogDescription>
-                  This restores every channel, category, and quiet-hours
-                  setting to the defaults{" "}
+                  This restores every channel, category, and quiet-hours setting to the defaults{" "}
                   {userId
                     ? "and syncs the change to your profile so all your devices update."
                     : "on this device."}
@@ -1593,9 +1498,7 @@ function NotificationPreferencesPanel({
               </AlertDialogHeader>
               <AlertDialogFooter>
                 <AlertDialogCancel>Cancel</AlertDialogCancel>
-                <AlertDialogAction onClick={resetDefaults}>
-                  Reset to defaults
-                </AlertDialogAction>
+                <AlertDialogAction onClick={resetDefaults}>Reset to defaults</AlertDialogAction>
               </AlertDialogFooter>
             </AlertDialogContent>
           </AlertDialog>
@@ -1622,9 +1525,7 @@ function NotificationPreferencesPanel({
               key={c.key}
               className="flex items-center justify-between rounded-lg border border-arena-border/60 bg-arena-panel-2/40 px-3 py-2"
             >
-              <span className="text-sm font-medium text-white/90">
-                {c.label}
-              </span>
+              <span className="text-sm font-medium text-white/90">{c.label}</span>
               <Toggle
                 checked={prefs.channels[c.key]}
                 onChange={(v) => setChannel(c.key, v)}
@@ -1642,8 +1543,6 @@ function NotificationPreferencesPanel({
 
       {/* Push permission status */}
       <PushStatusCard push={push} channelOn={prefs.channels.push} />
-
-
 
       {/* Categories */}
       <div className="mt-4">
@@ -1668,33 +1567,19 @@ function NotificationPreferencesPanel({
             const Icon = c.icon;
             const on = prefs.categories[c.key];
             return (
-              <li
-                key={c.key}
-                className="flex items-center justify-between gap-3 px-4 py-3"
-              >
+              <li key={c.key} className="flex items-center justify-between gap-3 px-4 py-3">
                 <div className="flex items-center gap-3 min-w-0">
                   <span
-                    className={cn(
-                      "grid h-9 w-9 place-items-center rounded-full ring-1",
-                      c.accent,
-                    )}
+                    className={cn("grid h-9 w-9 place-items-center rounded-full ring-1", c.accent)}
                   >
                     <Icon className="h-4 w-4" />
                   </span>
                   <div className="min-w-0">
-                    <div className="truncate text-sm font-semibold text-white/90">
-                      {c.title}
-                    </div>
-                    <div className="text-[11px] text-muted-foreground">
-                      {c.desc}
-                    </div>
+                    <div className="truncate text-sm font-semibold text-white/90">{c.title}</div>
+                    <div className="text-[11px] text-muted-foreground">{c.desc}</div>
                   </div>
                 </div>
-                <Toggle
-                  checked={on}
-                  onChange={(v) => setCategory(c.key, v)}
-                  label={c.title}
-                />
+                <Toggle checked={on} onChange={(v) => setCategory(c.key, v)} label={c.title} />
               </li>
             );
           })}
@@ -1707,11 +1592,7 @@ function NotificationPreferencesPanel({
         onChange={(next) => setPrefs((p) => ({ ...p, quietHours: next }))}
       />
 
-
-      <SendTestSection
-        prefs={prefs}
-        disabled={!hydrated}
-      />
+      <SendTestSection prefs={prefs} disabled={!hydrated} />
     </Panel>
   );
 }
@@ -1806,8 +1687,7 @@ function PushStatusCard({
       toast.success("Push notifications enabled");
     } else if (next === "denied") {
       toast.error("Push blocked", {
-        description:
-          "Update your browser's site settings for this page to re-enable.",
+        description: "Update your browser's site settings for this page to re-enable.",
       });
     } else if (next === "unsupported") {
       toast.error("Push not supported in this browser");
@@ -1859,16 +1739,13 @@ function PushStatusCard({
         )}
         {supported && permission === "denied" && (
           <span className="text-[11px] text-white/60">
-            Click the lock icon in your address bar → Site settings → allow
-            Notifications.
+            Click the lock icon in your address bar → Site settings → allow Notifications.
           </span>
         )}
       </div>
     </div>
   );
 }
-
-
 
 function QuietHoursSection({
   quiet,
@@ -1894,8 +1771,7 @@ function QuietHoursSection({
   }, [detected, quiet.timezone]);
 
   const overnight = toMinutesLocal(quiet.start) > toMinutesLocal(quiet.end);
-  const emptyWindow =
-    quiet.enabled && toMinutesLocal(quiet.start) === toMinutesLocal(quiet.end);
+  const emptyWindow = quiet.enabled && toMinutesLocal(quiet.start) === toMinutesLocal(quiet.end);
   const activeNow = isQuietHourNow(quiet);
 
   const commitTz = (v: string) => {
@@ -1916,13 +1792,10 @@ function QuietHoursSection({
     <div className="mt-4 rounded-xl border border-arena-border bg-arena-bg/50 px-4 py-3">
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
-          <div className="text-sm font-semibold text-white/90">
-            Quiet hours
-          </div>
+          <div className="text-sm font-semibold text-white/90">Quiet hours</div>
           <div className="text-[11px] text-muted-foreground">
-            Silence non-urgent notifications during a window in your account
-            timezone. Overnight ranges and daylight-saving are handled
-            automatically.
+            Silence non-urgent notifications during a window in your account timezone. Overnight
+            ranges and daylight-saving are handled automatically.
           </div>
         </div>
         <Toggle
@@ -2024,9 +1897,7 @@ function QuietHoursSection({
                 : "border-arena-border/60 focus:border-arena-violet",
             )}
           />
-          {tzError && (
-            <span className="text-[10px] text-red-400">{tzError}</span>
-          )}
+          {tzError && <span className="text-[10px] text-red-400">{tzError}</span>}
         </label>
       </div>
 
@@ -2034,9 +1905,7 @@ function QuietHoursSection({
         <div className="flex flex-wrap items-center gap-2">
           <span>
             Now in {quiet.timezone}:{" "}
-            <span className="font-mono text-white/80">
-              {formatZoneNow(quiet.timezone)}
-            </span>
+            <span className="font-mono text-white/80">{formatZoneNow(quiet.timezone)}</span>
           </span>
           {overnight && quiet.enabled && (
             <span className="rounded-full border border-arena-violet/40 bg-arena-violet/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-arena-violet">
@@ -2054,10 +1923,7 @@ function QuietHoursSection({
             </span>
           )}
         </div>
-        <span>
-          Wallet &amp; tips still ring through — urgent alerts bypass quiet
-          hours.
-        </span>
+        <span>Wallet &amp; tips still ring through — urgent alerts bypass quiet hours.</span>
       </div>
     </div>
   );
@@ -2075,20 +1941,12 @@ function normalizeInputTime(v: string, fallback: string): string {
   return /^([01]\d|2[0-3]):[0-5]\d$/.test(v) ? v : fallback;
 }
 
-
-function SendTestSection({
-  prefs,
-  disabled,
-}: {
-  prefs: NotifPrefs;
-  disabled: boolean;
-}) {
+function SendTestSection({ prefs, disabled }: { prefs: NotifPrefs; disabled: boolean }) {
   const runTest = useServerFn(sendTestNotification);
   const [pending, setPending] = useState<NotifPrefKey | null>(null);
 
   const activeCategories = CATEGORIES.filter((c) => prefs.categories[c.key]);
-  const defaultCategory: NotifPrefKey =
-    activeCategories[0]?.key ?? "walletChanges";
+  const defaultCategory: NotifPrefKey = activeCategories[0]?.key ?? "walletChanges";
 
   async function trigger(category: NotifPrefKey) {
     if (pending) return;
@@ -2131,12 +1989,10 @@ function SendTestSection({
     <div className="mt-4 rounded-xl border border-arena-border bg-arena-bg/50 p-4">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="min-w-0">
-          <div className="text-sm font-semibold text-white/90">
-            Send test notification
-          </div>
+          <div className="text-sm font-semibold text-white/90">Send test notification</div>
           <div className="text-[11px] text-muted-foreground">
-            Fires a test event through the same pipeline as real notifications.
-            Your channel &amp; category toggles decide what surfaces.
+            Fires a test event through the same pipeline as real notifications. Your channel &amp;
+            category toggles decide what surfaces.
           </div>
         </div>
         <div className="flex items-center gap-2">
@@ -2194,9 +2050,8 @@ function SendTestSection({
         </div>
       </div>
       <p className="mt-3 text-[10px] text-muted-foreground">
-        Preferences sync to your account and follow you across devices. Only
-        the in-app channel is actively delivered; email &amp; push are stored
-        for future use.
+        Preferences sync to your account and follow you across devices. Only the in-app channel is
+        actively delivered; email &amp; push are stored for future use.
       </p>
     </div>
   );

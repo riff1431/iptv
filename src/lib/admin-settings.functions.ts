@@ -7,13 +7,7 @@ export interface AllowlistState {
   updated_at: string | null;
 }
 
-type JsonValue =
-  | string
-  | number
-  | boolean
-  | null
-  | { [k: string]: JsonValue }
-  | JsonValue[];
+type JsonValue = string | number | boolean | null | { [k: string]: JsonValue } | JsonValue[];
 
 export interface AuditLogEntry {
   id: string;
@@ -50,7 +44,7 @@ const updateInput = z.object({
 
 export const updateAdminAllowlist = createServerFn({ method: "POST" })
   .middleware([requireAdminServer])
-  .inputValidator((data: unknown) => updateInput.parse(data))
+  .validator((data: unknown) => updateInput.parse(data))
   .handler(async ({ data, context }): Promise<AllowlistState> => {
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
 
@@ -111,12 +105,14 @@ const listInput = z.object({
 
 export const listAdminAuditLog = createServerFn({ method: "GET" })
   .middleware([requireAdminServer])
-  .inputValidator((data: unknown) => listInput.parse(data ?? {}))
+  .validator((data: unknown) => listInput.parse(data ?? {}))
   .handler(async ({ data }): Promise<AuditLogEntry[]> => {
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
     let q = supabaseAdmin
       .from("admin_audit_log")
-      .select("id, actor_id, actor_email, action, target_table, target_id, before, after, created_at")
+      .select(
+        "id, actor_id, actor_email, action, target_table, target_id, before, after, created_at",
+      )
       .order("created_at", { ascending: false })
       .limit(data.limit ?? 50);
     if (data.target_table) q = q.eq("target_table", data.target_table);

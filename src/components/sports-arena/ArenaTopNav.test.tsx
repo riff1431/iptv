@@ -6,7 +6,15 @@ vi.mock("@tanstack/react-router", async () => {
   const actual = await vi.importActual<typeof import("@tanstack/react-router")>("@tanstack/react-router");
   return {
     ...actual,
-    Link: ({ to, children, ...rest }: any) => (
+    Link: ({
+      to,
+      children,
+      activeOptions: _activeOptions,
+      activeProps: _activeProps,
+      inactiveProps: _inactiveProps,
+      preload: _preload,
+      ...rest
+    }: any) => (
       <a href={typeof to === "string" ? to : "#"} {...rest}>{children}</a>
     ),
   };
@@ -224,6 +232,5 @@ describe("ArenaTopNav – avatar sourcing", () => {
     expect(skeleton.className).toContain("animate-pulse");
   });
 });
-
 
 

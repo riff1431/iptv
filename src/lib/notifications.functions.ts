@@ -20,9 +20,12 @@ const inputSchema = z.object({
   category: z.enum(TEST_CATEGORIES),
 });
 
-function payloadFor(
-  category: TestCategory,
-): { kind: NotificationKind; title: string; body: string; link: string | null } {
+function payloadFor(category: TestCategory): {
+  kind: NotificationKind;
+  title: string;
+  body: string;
+  link: string | null;
+} {
   switch (category) {
     case "hostedMatches":
       return {
@@ -77,7 +80,7 @@ function payloadFor(
  */
 export const sendTestNotification = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
-  .inputValidator((data) => inputSchema.parse(data))
+  .validator((data) => inputSchema.parse(data))
   .handler(async ({ data, context }) => {
     const p = payloadFor(data.category);
     const { error } = await context.supabase.from("notifications").insert({

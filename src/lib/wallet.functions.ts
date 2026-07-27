@@ -56,7 +56,9 @@ export interface WalletTransactionDetail {
 }
 
 const listInput = z.object({
-  type: z.enum(["debit_lounge_entry", "debit_match_entry", "refund", "credit"]).optional(),
+  type: z
+    .enum(["debit_lounge_entry", "debit_match_entry", "debit_vip_upgrade", "refund", "credit"])
+    .optional(),
   q: z.string().trim().max(200).optional(),
   from: z.string().datetime().optional(),
   to: z.string().datetime().optional(),
@@ -93,7 +95,12 @@ export const getWalletOverview = createServerFn({ method: "GET" })
     for (const r of allRows.data ?? []) {
       if (r.type === "credit") creditCents += r.amount_cents;
       else if (r.type === "refund") refundCents += r.amount_cents;
-      else if (r.type === "debit_lounge_entry" || r.type === "debit_match_entry")
+      else if (
+        r.type === "debit_lounge_entry" ||
+        r.type === "debit_match_entry" ||
+        r.type === "debit_vip_upgrade" ||
+        r.type === "debit_tip"
+      )
         debitCents += r.amount_cents;
     }
 
@@ -111,7 +118,7 @@ export const getWalletOverview = createServerFn({ method: "GET" })
 
 export const listWalletTransactions = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
-  .inputValidator((d: unknown) => listInput.parse(d ?? {}))
+  .validator((d: unknown) => listInput.parse(d ?? {}))
   .handler(async ({ data, context }): Promise<WalletTransactionsPage> => {
     const { supabase, userId } = context;
     let q = supabase
@@ -152,7 +159,7 @@ export const listWalletTransactions = createServerFn({ method: "POST" })
 
 export const getWalletTransactionDetail = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
-  .inputValidator((d: unknown) => z.object({ id: z.string().uuid() }).parse(d))
+  .validator((d: unknown) => z.object({ id: z.string().uuid() }).parse(d))
   .handler(async ({ data, context }): Promise<WalletTransactionDetail> => {
     const { supabase, userId } = context;
     const { data: tx, error } = await supabase
@@ -229,7 +236,7 @@ function isoWeekKey(d: Date) {
 
 export const getWalletAnalytics = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
-  .inputValidator((data: unknown) => RangeSchema.parse(data ?? {}))
+  .validator((data: unknown) => RangeSchema.parse(data ?? {}))
   .handler(async ({ context, data }): Promise<WalletAnalytics> => {
     const { supabase, userId } = context;
     const { range } = data;
@@ -348,6 +355,7 @@ export const getWalletAnalytics = createServerFn({ method: "POST" })
       debit_lounge_entry: 0,
       debit_match_entry: 0,
       debit_tip: 0,
+      debit_vip_upgrade: 0,
     });
     const bucketOrder: string[] = [];
     const bucketLabel = new Map<string, string>();
@@ -406,48 +414,72 @@ export const getWalletAnalytics = createServerFn({ method: "POST" })
     return { range, bucketUnit, balanceSeries, spendBuckets };
   });
 
+export interface VipStatus {
+  isVip: boolean;
+  expiresAt: string | null;
+}
+
+export interface VipUpgradeResult extends VipStatus {
+  charged: boolean;
+}
+
+export const getVipStatus = createServerFn({ method: "GET" })
+  .middleware([requireSupabaseAuth])
+  .handler(async ({ context }): Promise<VipStatus> => {
+    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+    const { data, error } = await supabaseAdmin
+      .from("profiles")
+      .select("is_vip, vip_expires_at")
+      .eq("id", context.userId)
+      .maybeSingle();
+
+    if (error) throw new Error(error.message);
+
+    const expiresAt = data?.vip_expires_at ?? null;
+    const isVip =
+      data?.is_vip === true && expiresAt !== null && new Date(expiresAt).getTime() > Date.now();
+
+    return { isVip, expiresAt: isVip ? expiresAt : null };
+  });
+
 export const upgradeUserVip = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
-  .handler(async ({ context }) => {
+  .handler(async ({ context }): Promise<VipUpgradeResult> => {
     const { userId } = context;
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
 
-    // 1. Get user's current wallet balance
-    const { data: balance, error: balErr } = await supabaseAdmin.rpc("wallet_balance_cents", {
+    // Locks the profile row and performs the balance check, debit, and
+    // entitlement update atomically. Repeated calls do not charge again.
+    const { data, error } = await supabaseAdmin.rpc("upgrade_user_vip", {
       _user_id: userId,
     });
-    if (balErr) throw new Error(balErr.message);
+    if (error) throw new Error(error.message);
 
-    const costCents = 1999; // €19.99
-    const balanceCents = (balance as number | null) ?? 0;
-
-    if (balanceCents < costCents) {
-      throw new Error("Insufficient wallet balance. Please add credits first.");
+    const row = data?.[0];
+    if (!row?.is_vip || !row.vip_expires_at) {
+      throw new Error("VIP upgrade did not return an active membership.");
     }
 
-    // 2. Perform transactions inside the database securely
-    const { error: txErr } = await supabaseAdmin.from("wallet_transactions").insert({
-      user_id: userId,
-      type: "debit_match_entry",
-      amount_cents: costCents,
-      memo: "VIP Membership Upgrade (1 Year)",
-    });
-    if (txErr) throw new Error(txErr.message);
-
-    // 3. Update the auth metadata for this user
-    const { data: userObj, error: fetchErr } = await supabaseAdmin.auth.admin.getUserById(userId);
-    if (fetchErr || !userObj?.user) {
-      throw new Error(fetchErr?.message || "User session not found");
+    // Keep legacy consumers compatible. The profiles row is canonical, so a
+    // metadata-sync failure does not turn a committed payment into an error.
+    try {
+      const { data: userObj } = await supabaseAdmin.auth.admin.getUserById(userId);
+      if (userObj?.user) {
+        await supabaseAdmin.auth.admin.updateUserById(userId, {
+          user_metadata: {
+            ...(userObj.user.user_metadata ?? {}),
+            is_vip: true,
+            vip_expires_at: row.vip_expires_at,
+          },
+        });
+      }
+    } catch (metadataError) {
+      console.error("[vip] auth metadata compatibility sync failed", metadataError);
     }
 
-    const currentMeta = userObj.user.user_metadata || {};
-    const { error: updateErr } = await supabaseAdmin.auth.admin.updateUserById(userId, {
-      user_metadata: {
-        ...currentMeta,
-        is_vip: true,
-      },
-    });
-    if (updateErr) throw new Error(updateErr.message);
-
-    return { ok: true };
+    return {
+      isVip: true,
+      expiresAt: row.vip_expires_at,
+      charged: row.charged,
+    };
   });
