@@ -110,39 +110,11 @@ export const payToStay = createServerFn({ method: "POST" })
   .validator((d) => loungeIdInput.parse(d))
   .handler(async ({ data, context }) => {
     const supabase = context.supabase as unknown as Supa;
-    const access = await loadAccess(supabase, context.userId, data.loungeId);
-    if (!access.sessionId) throw new Error("No active session — enter the lounge first");
-    if (access.status === "paid") return access;
-    if (access.walletBalanceCents < access.entryFeeCents) {
-      throw new Error(
-        `Insufficient wallet balance. Need $${(access.entryFeeCents / 100).toFixed(
-          2,
-        )}, have $${(access.walletBalanceCents / 100).toFixed(2)}.`,
-      );
-    }
-
-    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
-
-    const debit = await supabaseAdmin.from("wallet_transactions").insert({
-      user_id: context.userId,
-      type: "debit_lounge_entry",
-      amount_cents: access.entryFeeCents,
-      lounge_session_id: access.sessionId,
-      memo: `Lounge entry ${access.loungeId}`,
+    // Debit + session flip happen atomically inside the locked RPC.
+    const { error } = await supabase.rpc("pay_for_lounge_entry", {
+      _lounge_id: data.loungeId,
     });
-    if (debit.error) throw new Error(debit.error.message);
-
-    const newExpiry = new Date(Date.now() + 60 * 60 * 1000).toISOString();
-    const update = await supabaseAdmin
-      .from("lounge_sessions")
-      .update({
-        status: "paid",
-        expires_at: newExpiry,
-        paid_at: new Date().toISOString(),
-        amount_cents: access.entryFeeCents,
-      })
-      .eq("id", access.sessionId);
-    if (update.error) throw new Error(update.error.message);
+    if (error) throw new Error(error.message);
 
     return loadAccess(supabase, context.userId, data.loungeId);
   });

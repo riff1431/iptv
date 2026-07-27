@@ -1507,6 +1507,17 @@ export type Database = {
         Args: { _admin_note?: string; _id: string }
         Returns: undefined
       }
+      create_withdrawal_request: {
+        Args: {
+          _amount_cents: number
+          _destination: string
+          _method: Database["public"]["Enums"]["withdrawal_method"]
+          _user_note?: string
+        }
+        Returns: string
+      }
+      pay_for_lounge_entry: { Args: { _lounge_id: string }; Returns: undefined }
+      pay_for_match_entry: { Args: { _match_id: string }; Returns: undefined }
       send_tip: {
         Args: {
           _amount_cents: number

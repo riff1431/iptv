@@ -118,41 +118,11 @@ export const payMatchToStay = createServerFn({ method: "POST" })
   .validator((d) => matchIdInput.parse(d))
   .handler(async ({ data, context }) => {
     const supabase = context.supabase as unknown as Supa;
-    const access = await loadAccess(supabase, context.userId, data.matchId);
-    if (!access.sessionId) throw new Error("No active session — enter the match first");
-    if (access.status === "paid") return access;
-    if (access.walletBalanceCents < access.entryFeeCents) {
-      throw new Error(
-        `Insufficient wallet balance. Need $${(access.entryFeeCents / 100).toFixed(
-          2,
-        )}, have $${(access.walletBalanceCents / 100).toFixed(2)}.`,
-      );
-    }
-
-    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
-
-    const debit = await (supabaseAdmin as unknown as SupabaseClient)
-      .from("wallet_transactions")
-      .insert({
-        user_id: context.userId,
-        type: "debit_match_entry",
-        amount_cents: access.entryFeeCents,
-        match_session_id: access.sessionId,
-        memo: `Match entry ${access.matchId}`,
-      });
-    if (debit.error) throw new Error(debit.error.message);
-
-    const newExpiry = new Date(Date.now() + 60 * 60 * 1000).toISOString();
-    const update = await (supabaseAdmin as unknown as SupabaseClient)
-      .from("match_sessions")
-      .update({
-        status: "paid",
-        expires_at: newExpiry,
-        paid_at: new Date().toISOString(),
-        amount_cents: access.entryFeeCents,
-      })
-      .eq("id", access.sessionId);
-    if (update.error) throw new Error(update.error.message);
+    // Debit + session flip happen atomically inside the locked RPC.
+    const { error } = await supabase.rpc("pay_for_match_entry", {
+      _match_id: data.matchId,
+    });
+    if (error) throw new Error(error.message);
 
     return loadAccess(supabase, context.userId, data.matchId);
   });

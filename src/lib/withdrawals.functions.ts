@@ -67,42 +67,19 @@ export const createWithdrawal = createServerFn({ method: "POST" })
         throw new Error("Include bank account details (account, routing, name)");
     }
 
-    // Balance check: available = balance - sum(pending withdrawals)
-    const [balanceRes, pendingRes] = await Promise.all([
-      supabase.rpc("wallet_balance_cents", { _user_id: userId }),
-      supabase
-        .from("withdrawal_requests")
-        .select("amount_cents")
-        .eq("user_id", userId)
-        .in("status", ["pending", "approved"]),
-    ]);
-    if (pendingRes.error) throw new Error(pendingRes.error.message);
-
-    const balance = (balanceRes.data as number | null) ?? 0;
-    const pendingSum = (pendingRes.data ?? []).reduce((s, r) => s + r.amount_cents, 0);
-    const available = balance - pendingSum;
-    if (data.amountCents > available) {
-      throw new Error(
-        `Insufficient available balance. You have $${(available / 100).toFixed(2)} available (pending requests reserved).`,
-      );
-    }
-
-    // Only one pending request at a time
-    const pendingCount = (pendingRes.data ?? []).filter((r) => true).length;
-    if (pendingCount >= 3) {
-      throw new Error("You already have 3 unresolved withdrawal requests. Please wait for review.");
-    }
+    // Atomic balance-reservation + insert (per-user advisory lock inside the RPC).
+    const { data: newId, error: rpcError } = await supabase.rpc("create_withdrawal_request", {
+      _amount_cents: data.amountCents,
+      _method: data.method,
+      _destination: data.destination,
+      _user_note: data.userNote ?? undefined,
+    });
+    if (rpcError) throw new Error(rpcError.message);
 
     const { data: inserted, error } = await supabase
       .from("withdrawal_requests")
-      .insert({
-        user_id: userId,
-        amount_cents: data.amountCents,
-        method: data.method,
-        destination: data.destination,
-        user_note: data.userNote ?? null,
-      })
       .select(SELECT_COLS)
+      .eq("id", newId as string)
       .single();
     if (error) throw new Error(error.message);
     return inserted as WithdrawalRequest;
