@@ -33,6 +33,11 @@ async function assertAdmin(context: { supabase: any; userId: string }) {
   if (!data) throw new Error("Forbidden: admin role required");
 }
 
+/** Escape ILIKE wildcards so user-supplied search text can't broaden a match. */
+function escapeIlike(v: string) {
+  return v.replace(/\\/g, "\\\\").replace(/[%_]/g, (m) => `\\${m}`);
+}
+
 const listInput = z
   .object({
     status: z.enum(["pending", "approved", "rejected", "cancelled", "all"]).optional(),
@@ -209,7 +214,7 @@ export const adminListTopupHistory = createServerFn({ method: "POST" })
       const { data: profs } = await supabaseAdmin
         .from("profiles")
         .select("id, display_name")
-        .ilike("display_name", `%${q}%`)
+        .ilike("display_name", `%${escapeIlike(q)}%`)
         .limit(500);
       (profs ?? []).forEach((p: any) => ids.add(p.id));
 
@@ -360,7 +365,7 @@ export const adminExportTopupHistory = createServerFn({ method: "POST" })
       const { data: profs } = await supabaseAdmin
         .from("profiles")
         .select("id, display_name")
-        .ilike("display_name", `%${q}%`)
+        .ilike("display_name", `%${escapeIlike(q)}%`)
         .limit(500);
       (profs ?? []).forEach((p: any) => ids.add(p.id));
       const { data: usersData } = await supabaseAdmin.auth.admin.listUsers({

@@ -5,6 +5,12 @@ import { createServerFn } from "@tanstack/react-start";
 import { getRequest } from "@tanstack/react-start/server";
 
 export const getRequestOrigin = createServerFn({ method: "GET" }).handler(() => {
+  // Prefer a pinned public origin (env) so spoofable x-forwarded-* headers
+  // can't poison og:url / canonical URLs (cache-poisoning vector). Falls back
+  // to the request headers only when PUBLIC_SITE_URL is not configured.
+  const pinned = process.env.PUBLIC_SITE_URL?.trim();
+  if (pinned) return pinned.replace(/\/+$/, "");
+
   const req = getRequest();
   const proto =
     req.headers.get("x-forwarded-proto") ??
