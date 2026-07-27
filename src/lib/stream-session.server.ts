@@ -7,7 +7,7 @@
 //
 // Cross-isolate sharing is out of scope for this pass (see plan §6).
 
-import { resolveStreamUrl, type IptvCredentials } from "@/lib/iptv-client.server";
+import { resolveStreamUrl, xtreamUpstreamUrl, type IptvCredentials } from "@/lib/iptv-client.server";
 import { decryptSecret } from "@/lib/iptv-crypto.server";
 import { rewritePlaylist } from "@/lib/iptv-proxy.server";
 
@@ -113,11 +113,14 @@ export async function getSharedPlaylist(
 
   const p = (async (): Promise<PlaylistEntry> => {
     try {
-      const upstreamUrl = resolveStreamUrl(
-        await credsFor(tv),
-        tv.selected_channel_id!,
-        tv.current_stream_url ?? null,
-      );
+      const creds = await credsFor(tv);
+      // Direct upstream URL only. resolveStreamUrl's xtream branch returns a
+      // browser proxy-wrapped path (/api/public/iptv/playlist?url=...) which
+      // can't be fetched server-side here — use the absolute upstream URL.
+      const upstreamUrl =
+        creds.connection_type === "xtream"
+          ? xtreamUpstreamUrl(creds, tv.selected_channel_id!)
+          : resolveStreamUrl(creds, tv.selected_channel_id!, tv.current_stream_url ?? null);
       const upstream = await fetch(upstreamUrl, {
         headers: { "User-Agent": "VLC/3.0" },
       });

@@ -43,7 +43,11 @@ export const Route = createFileRoute("/api/sports-arena/tv/$tvId/playlist")({
           .maybeSingle();
         if (error) return new Response(error.message, { status: 500 });
         if (!tv || !tv.enabled) return new Response("TV unavailable", { status: 404 });
-        if (!tv.server_url || !tv.selected_channel_id) {
+        // A channel must be selected. server_url is optional: when a TV has no
+        // per-TV credentials, getSharedPlaylist -> credsFor falls back to the
+        // global IPTV provider (app_settings). Requiring server_url here would
+        // wrongly 409 the common global-Xtream-TV case.
+        if (!tv.selected_channel_id) {
           return new Response("TV not configured", { status: 409 });
         }
 
