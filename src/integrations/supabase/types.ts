@@ -1460,6 +1460,10 @@ export type Database = {
         Args: { _admin_note?: string; _id: string }
         Returns: string
       }
+      approve_withdrawal_request: {
+        Args: { _admin_note?: string; _id: string }
+        Returns: string
+      }
       claim_admin_if_allowed: { Args: never; Returns: boolean }
       get_lounge_tvs: {
         Args: { _lounge_id: string }
@@ -1492,6 +1496,14 @@ export type Database = {
       }
       promote_scheduled_matches: { Args: never; Returns: number }
       reject_topup_request: {
+        Args: { _admin_note?: string; _id: string }
+        Returns: undefined
+      }
+      reject_withdrawal_request: {
+        Args: { _admin_note?: string; _id: string }
+        Returns: undefined
+      }
+      mark_withdrawal_paid: {
         Args: { _admin_note?: string; _id: string }
         Returns: undefined
       }
@@ -1544,6 +1556,7 @@ export type Database = {
         | "debit_tip"
         | "debit_match_entry"
         | "debit_vip_upgrade"
+        | "debit_withdrawal"
       withdrawal_method: "paypal" | "bank_transfer" | "crypto"
       withdrawal_status:
         | "pending"
@@ -1693,6 +1706,7 @@ export const Constants = {
         "debit_tip",
         "debit_match_entry",
         "debit_vip_upgrade",
+        "debit_withdrawal",
       ],
       withdrawal_method: ["paypal", "bank_transfer", "crypto"],
       withdrawal_status: [

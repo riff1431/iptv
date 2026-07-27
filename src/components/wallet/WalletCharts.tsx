@@ -96,6 +96,7 @@ const ALL_SPEND_TYPES: WalletTxType[] = [
   "debit_match_entry",
   "debit_vip_upgrade",
   "debit_tip",
+  "debit_withdrawal",
 ];
 
 function parseSpendCsv(csv: string): Record<WalletTxType, boolean> {
@@ -112,6 +113,7 @@ function parseSpendCsv(csv: string): Record<WalletTxType, boolean> {
     debit_match_entry: set.has("debit_match_entry"),
     debit_tip: set.has("debit_tip"),
     debit_vip_upgrade: set.has("debit_vip_upgrade"),
+    debit_withdrawal: set.has("debit_withdrawal"),
   };
 }
 

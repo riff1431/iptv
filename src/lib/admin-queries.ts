@@ -287,34 +287,8 @@ export function useDeleteAdSchedule() {
   });
 }
 
-// ---------- App settings ----------
-export function useAppSettings() {
-  return useQuery({
-    queryKey: ["admin", "app_settings"],
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from("app_settings")
-        .select("*")
-        .eq("id", true)
-        .maybeSingle();
-      if (error) throw error;
-      return data;
-    },
-  });
-}
-
-export function useUpdateAppSettings() {
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: async (patch: Partial<AppSettings>) => {
-      const { data, error } = await supabase
-        .from("app_settings")
-        .upsert({ id: true, ...patch })
-        .select()
-        .maybeSingle();
-      if (error) throw error;
-      return data;
-    },
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["admin", "app_settings"] }),
-  });
-}
+// NOTE: client-side `useAppSettings` / `useUpdateAppSettings` hooks used to live
+// here. They were removed because app_settings now exposes only a safe column
+// projection to the authenticated role (secret columns — admin allowlist, IPTV
+// credentials, wallet API URL — are service_role-only). Admin reads/writes go
+// through server functions that use the service-role client.

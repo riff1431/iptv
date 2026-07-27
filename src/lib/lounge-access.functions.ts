@@ -146,23 +146,7 @@ export const payToStay = createServerFn({ method: "POST" })
 
     return loadAccess(supabase, context.userId, data.loungeId);
   });
-
-/** Dev helper: credit the signed-in user's wallet with test funds. */
-export const creditOwnWallet = createServerFn({ method: "POST" })
-  .middleware([requireSupabaseAuth])
-  .validator((d) => z.object({ amountCents: z.number().int().positive().max(50000) }).parse(d))
-  .handler(async ({ data, context }) => {
-    const supabase = context.supabase as unknown as Supa;
-    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
-    const { error } = await supabaseAdmin.from("wallet_transactions").insert({
-      user_id: context.userId,
-      type: "credit",
-      amount_cents: data.amountCents,
-      memo: "Self-credit (dev)",
-    });
-    if (error) throw new Error(error.message);
-    const { data: bal } = await supabase.rpc("wallet_balance_cents", {
-      _user_id: context.userId,
-    });
-    return { balanceCents: (bal as number | null) ?? 0 };
-  });
+// NOTE: A self-service `creditOwnWallet` RPC used to live here. It was removed
+// because it let any signed-in user mint real wallet credit (direct fraud).
+// Wallet credits must only originate from the audited `approve_topup_request`
+// RPC (admin) or the service-role maintenance scripts — never a user RPC.

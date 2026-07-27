@@ -57,7 +57,14 @@ export interface WalletTransactionDetail {
 
 const listInput = z.object({
   type: z
-    .enum(["debit_lounge_entry", "debit_match_entry", "debit_vip_upgrade", "refund", "credit"])
+    .enum([
+      "debit_lounge_entry",
+      "debit_match_entry",
+      "debit_vip_upgrade",
+      "debit_withdrawal",
+      "refund",
+      "credit",
+    ])
     .optional(),
   q: z.string().trim().max(200).optional(),
   from: z.string().datetime().optional(),
@@ -99,7 +106,8 @@ export const getWalletOverview = createServerFn({ method: "GET" })
         r.type === "debit_lounge_entry" ||
         r.type === "debit_match_entry" ||
         r.type === "debit_vip_upgrade" ||
-        r.type === "debit_tip"
+        r.type === "debit_tip" ||
+        r.type === "debit_withdrawal"
       )
         debitCents += r.amount_cents;
     }
@@ -356,6 +364,7 @@ export const getWalletAnalytics = createServerFn({ method: "POST" })
       debit_match_entry: 0,
       debit_tip: 0,
       debit_vip_upgrade: 0,
+      debit_withdrawal: 0,
     });
     const bucketOrder: string[] = [];
     const bucketLabel = new Map<string, string>();

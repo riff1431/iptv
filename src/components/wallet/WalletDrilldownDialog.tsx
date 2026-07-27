@@ -56,6 +56,12 @@ const TYPE_META: Record<
     sign: "-",
     icon: ArrowDownRight,
   },
+  debit_withdrawal: {
+    label: "Withdrawal",
+    tone: "text-rose-400",
+    sign: "-",
+    icon: ArrowDownRight,
+  },
 };
 
 const CATEGORY_OPTIONS: { type: WalletTxType; label: string }[] = [
@@ -65,6 +71,7 @@ const CATEGORY_OPTIONS: { type: WalletTxType; label: string }[] = [
   { type: "debit_match_entry", label: "Match" },
   { type: "debit_tip", label: "Tip" },
   { type: "debit_vip_upgrade", label: "VIP" },
+  { type: "debit_withdrawal", label: "Withdrawal" },
 ];
 
 type Direction = "all" | "credit" | "debit";

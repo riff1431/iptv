@@ -1,7 +1,7 @@
 import { lazy, Suspense, useEffect, useMemo, useState } from "react";
 import { withAuth } from "@/components/RequireAuth";
 import { createFileRoute, stripSearchParams, useNavigate } from "@tanstack/react-router";
-import { useMutation, useQuery, useQueryClient, keepPreviousData } from "@tanstack/react-query";
+import { useQuery, useQueryClient, keepPreviousData } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
 import { zodValidator, fallback } from "@tanstack/zod-adapter";
 import { z } from "zod";
@@ -14,7 +14,6 @@ import {
   Search,
   Filter,
   X,
-  Plus,
   ChevronLeft,
   ChevronRight,
   ChevronsLeft,
@@ -57,7 +56,6 @@ import {
   type WalletTransaction,
   type WalletTransactionDetail,
 } from "@/lib/wallet.functions";
-import { creditOwnWallet } from "@/lib/lounge-access.functions";
 import {
   Sheet,
   SheetContent,
@@ -103,6 +101,7 @@ const walletSearchSchema = z.object({
       "debit_match_entry",
       "debit_vip_upgrade",
       "debit_tip",
+      "debit_withdrawal",
     ]),
     "",
   ).default(""),
@@ -124,6 +123,7 @@ const walletSearchSchema = z.object({
         "debit_match_entry",
         "debit_vip_upgrade",
         "debit_tip",
+        "debit_withdrawal",
       ]);
       const tokens = Array.from(
         new Set(
@@ -158,6 +158,7 @@ const walletSearchSchema = z.object({
         "debit_match_entry",
         "debit_vip_upgrade",
         "debit_tip",
+        "debit_withdrawal",
       ]);
       return Array.from(
         new Set(
@@ -290,6 +291,13 @@ function typeMeta(t: WalletTxType) {
       return { label: "Match entry", icon: Ticket, tone: "text-blue-400", sign: "-" as const };
     case "debit_vip_upgrade":
       return { label: "VIP membership", icon: Crown, tone: "text-violet-400", sign: "-" as const };
+    case "debit_withdrawal":
+      return {
+        label: "Withdrawal",
+        icon: ArrowDownRight,
+        tone: "text-rose-400",
+        sign: "-" as const,
+      };
     default:
       return { label: t, icon: CircleDollarSign, tone: "text-muted-foreground", sign: "" as const };
   }
@@ -317,7 +325,6 @@ function WalletPage() {
       pageSize: number;
     };
   }) => Promise<Awaited<ReturnType<typeof listWalletTransactions>>>;
-  const creditFn = useServerFn(creditOwnWallet);
   const detailFn = useServerFn(getWalletTransactionDetail);
 
   const [selectedTxId, setSelectedTxId] = useState<string | null>(null);
@@ -571,24 +578,6 @@ function WalletPage() {
       replace: true,
     });
 
-  const [creditAmount, setCreditAmount] = useState<string>("10.00");
-  const creditMutation = useMutation({
-    mutationFn: async () => {
-      const dollars = Number.parseFloat(creditAmount);
-      if (!Number.isFinite(dollars) || dollars <= 0)
-        throw new Error("Enter an amount greater than 0");
-      const cents = Math.round(dollars * 100);
-      if (cents < 100) throw new Error("Minimum top-up is $1.00");
-      if (cents > 50_000) throw new Error("Test credits are capped at $500.00");
-      return creditFn({ data: { amountCents: cents } });
-    },
-    onSuccess: () => {
-      toast.success("Wallet credited");
-      void qc.invalidateQueries({ queryKey: ["wallet"] });
-    },
-    onError: (err) => toast.error(err instanceof Error ? err.message : "Credit failed"),
-  });
-
   if (authLoading || !user) {
     return (
       <AppShell>
@@ -658,115 +647,6 @@ function WalletPage() {
           />
         </section>
 
-        {(() => {
-          const parsedDollars = Number.parseFloat(creditAmount);
-          const validDollars =
-            Number.isFinite(parsedDollars) && parsedDollars > 0 ? parsedDollars : 0;
-          const cents = Math.round(validDollars * 100);
-          const capped = cents > 50_000;
-          const tooSmall = cents > 0 && cents < 1;
-          const invalid = cents <= 0 || capped;
-          const currentBal = overview.data?.balanceCents ?? 0;
-          const projected = currentBal + Math.min(cents, 50_000);
-          const presets = [10, 25, 50, 100, 250, 500];
-          return (
-            <section className="arena-card rounded-xl p-4 sm:p-5">
-              <div className="flex flex-wrap items-start justify-between gap-3">
-                <div className="flex items-center gap-3">
-                  <div className="grid h-10 w-10 place-items-center rounded-lg bg-arena-violet/15 text-arena-violet">
-                    <CircleDollarSign className="h-5 w-5" />
-                  </div>
-                  <div>
-                    <div className="text-[11px] font-bold uppercase tracking-[0.2em] text-arena-violet">
-                      Add test credit
-                    </div>
-                    <p className="text-xs text-muted-foreground">
-                      Instantly credits your wallet. Min $1.00 · Max $500.00 per top-up.
-                    </p>
-                  </div>
-                </div>
-                <div className="text-right">
-                  <div className="text-[10px] font-bold uppercase tracking-[0.16em] text-muted-foreground">
-                    New balance
-                  </div>
-                  <div className="font-display text-lg font-extrabold text-arena-gradient">
-                    {fmtDollars(projected)}
-                  </div>
-                </div>
-              </div>
-
-              <div className="mt-4 flex flex-wrap gap-2">
-                {presets.map((p) => {
-                  const active = Math.round(validDollars * 100) === p * 100;
-                  return (
-                    <button
-                      key={p}
-                      type="button"
-                      onClick={() => setCreditAmount(p.toFixed(2))}
-                      className={`rounded-lg border px-3 py-1.5 text-xs font-bold uppercase tracking-[0.12em] transition ${
-                        active
-                          ? "border-arena-violet bg-arena-violet/15 text-arena-violet"
-                          : "border-white/10 bg-white/[0.02] text-muted-foreground hover:border-arena-violet/60 hover:text-foreground"
-                      }`}
-                    >
-                      +${p}
-                    </button>
-                  );
-                })}
-              </div>
-
-              <div className="mt-4 flex flex-wrap items-end gap-3">
-                <label className="flex flex-1 flex-col gap-1 text-[10px] font-bold uppercase tracking-[0.14em] text-muted-foreground sm:flex-none">
-                  Amount (USD)
-                  <Input
-                    type="number"
-                    inputMode="decimal"
-                    step="0.01"
-                    min="1"
-                    max="500"
-                    value={creditAmount}
-                    onChange={(e) => setCreditAmount(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter" && !invalid && !creditMutation.isPending) {
-                        e.preventDefault();
-                        creditMutation.mutate();
-                      }
-                    }}
-                    aria-invalid={invalid || undefined}
-                    className={`h-10 w-full font-mono text-base font-normal normal-case tracking-normal sm:w-40 ${
-                      invalid ? "border-destructive focus-visible:ring-destructive" : ""
-                    }`}
-                  />
-                </label>
-                <Button
-                  onClick={() => creditMutation.mutate()}
-                  disabled={creditMutation.isPending || invalid}
-                  className="h-10 gap-2"
-                >
-                  {creditMutation.isPending ? (
-                    <Loader2 className="h-4 w-4 animate-spin" />
-                  ) : (
-                    <Plus className="h-4 w-4" />
-                  )}
-                  {creditMutation.isPending
-                    ? "Adding…"
-                    : `Add ${validDollars > 0 && !capped ? fmtDollars(cents) : "credit"}`}
-                </Button>
-              </div>
-
-              {(capped || tooSmall || (creditAmount !== "" && cents <= 0)) && (
-                <p className="mt-2 text-xs text-destructive">
-                  {capped
-                    ? "Amount is capped at $500.00 per top-up."
-                    : tooSmall
-                      ? "Minimum top-up is $1.00."
-                      : "Enter an amount greater than 0."}
-                </p>
-              )}
-            </section>
-          );
-        })()}
-
         <Suspense fallback={<div className="arena-card h-44 animate-pulse rounded-xl" />}>
           <TopupSection />
         </Suspense>
@@ -834,6 +714,7 @@ function WalletPage() {
                     <SelectItem value="debit_match_entry">Match entry</SelectItem>
                     <SelectItem value="debit_vip_upgrade">VIP membership</SelectItem>
                     <SelectItem value="debit_tip">Tip</SelectItem>
+                    <SelectItem value="debit_withdrawal">Withdrawal</SelectItem>
                   </SelectContent>
                 </Select>
                 <Input

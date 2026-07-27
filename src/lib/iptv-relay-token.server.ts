@@ -11,10 +11,8 @@ const RELAY_TOKEN_TTL_SECONDS = 15 * 60;
 const RELAY_ACCESS_TTL_SECONDS = 6 * 60 * 60;
 
 function getSecret(): Buffer {
-  const raw =
-    process.env.IPTV_PROXY_SIGNING_KEY ||
-    process.env.IPTV_ENCRYPTION_KEY ||
-    "pgx-default-iptv-relay-signing-key-v1";
+  const raw = process.env.IPTV_PROXY_SIGNING_KEY;
+  if (!raw) throw new Error("IPTV_PROXY_SIGNING_KEY not configured");
   return createHash("sha256").update(`pgx-iptv-relay:${raw}`, "utf8").digest();
 }
 

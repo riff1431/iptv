@@ -2,13 +2,12 @@ import { useCallback, useEffect, useState } from "react";
 import { useServerFn } from "@tanstack/react-start";
 import { Link } from "@tanstack/react-router";
 import { Button } from "@/components/ui/button";
-import { Wallet, Timer, Lock, Plus, LogIn } from "lucide-react";
+import { Wallet, Timer, Lock, LogIn } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import {
   getLoungeAccess,
   enterLounge,
   payToStay,
-  creditOwnWallet,
   type LoungeAccess,
 } from "@/lib/lounge-access.functions";
 
@@ -45,11 +44,10 @@ export function LoungeAccessGate({ loungeId, children }: LoungeAccessGateProps) 
   const fetchAccess = useServerFn(getLoungeAccess);
   const enter = useServerFn(enterLounge);
   const pay = useServerFn(payToStay);
-  const credit = useServerFn(creditOwnWallet);
 
   const [access, setAccess] = useState<LoungeAccess | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [busy, setBusy] = useState<"enter" | "pay" | "credit" | null>(null);
+  const [busy, setBusy] = useState<"enter" | "pay" | null>(null);
   const [authed, setAuthed] = useState<boolean | null>(null);
 
   useEffect(() => {
@@ -169,15 +167,6 @@ export function LoungeAccessGate({ loungeId, children }: LoungeAccessGateProps) 
               ? "Enter free"
               : `Start ${Math.round(access.freePreviewSeconds / 60)}-min preview`}
           </Button>
-          {access.entryFeeCents > 0 && (
-            <DevCreditButton busy={busy === "credit"} onCredit={async () => {
-              setBusy("credit");
-              try {
-                await credit({ data: { amountCents: 2000 } });
-                await refresh();
-              } finally { setBusy(null); }
-            }} />
-          )}
         </div>
       </GatePanel>
     );
@@ -254,15 +243,6 @@ export function LoungeAccessGate({ loungeId, children }: LoungeAccessGateProps) 
             >
               Pay {feeLabel}
             </Button>
-            {!canAfford && (
-              <DevCreditButton busy={busy === "credit"} onCredit={async () => {
-                setBusy("credit");
-                try {
-                  await credit({ data: { amountCents: 2000 } });
-                  await refresh();
-                } finally { setBusy(null); }
-              }} />
-            )}
           </div>
         </GatePanel>
       ) : (
@@ -307,19 +287,5 @@ function WalletChip({ balanceCents }: { balanceCents: number }) {
       <span className="text-muted-foreground">PGX Wallet:</span>
       <span className="font-semibold">{fmtDollars(balanceCents)}</span>
     </div>
-  );
-}
-
-function DevCreditButton({
-  busy,
-  onCredit,
-}: {
-  busy: boolean;
-  onCredit: () => void | Promise<void>;
-}) {
-  return (
-    <Button variant="outline" disabled={busy} onClick={() => void onCredit()}>
-      <Plus className="h-4 w-4" /> +$20 test credit
-    </Button>
   );
 }

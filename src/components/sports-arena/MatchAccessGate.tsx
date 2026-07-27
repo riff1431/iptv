@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useServerFn } from "@tanstack/react-start";
 import { Link } from "@tanstack/react-router";
 import { Button } from "@/components/ui/button";
-import { Wallet, Timer, Lock, Plus, LogIn } from "lucide-react";
+import { Wallet, Timer, Lock, LogIn } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import {
   getMatchAccess,
@@ -10,7 +10,6 @@ import {
   payMatchToStay,
   type MatchAccess,
 } from "@/lib/match-access.functions";
-import { creditOwnWallet } from "@/lib/lounge-access.functions";
 
 function fmtDollars(cents: number) {
   return `$${(cents / 100).toFixed(2)}`;
@@ -55,11 +54,10 @@ export function MatchAccessGate({ matchId, children, autoEnter = false }: MatchA
   const fetchAccess = useServerFn(getMatchAccess);
   const enter = useServerFn(enterMatch);
   const pay = useServerFn(payMatchToStay);
-  const credit = useServerFn(creditOwnWallet);
 
   const [access, setAccess] = useState<MatchAccess | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [busy, setBusy] = useState<"enter" | "pay" | "credit" | null>(null);
+  const [busy, setBusy] = useState<"enter" | "pay" | null>(null);
   const [authed, setAuthed] = useState<boolean | null>(null);
 
   useEffect(() => {
@@ -208,20 +206,6 @@ export function MatchAccessGate({ matchId, children, autoEnter = false }: MatchA
               ? "Enter free"
               : `Start ${Math.round(access.freePreviewSeconds / 60)}-min preview`}
           </Button>
-          {access.entryFeeCents > 0 && (
-            <DevCreditButton
-              busy={busy === "credit"}
-              onCredit={async () => {
-                setBusy("credit");
-                try {
-                  await credit({ data: { amountCents: 2000 } });
-                  await refresh();
-                } finally {
-                  setBusy(null);
-                }
-              }}
-            />
-          )}
         </div>
       </GatePanel>
     );
@@ -298,20 +282,6 @@ export function MatchAccessGate({ matchId, children, autoEnter = false }: MatchA
             >
               Pay {feeLabel}
             </Button>
-            {!canAfford && (
-              <DevCreditButton
-                busy={busy === "credit"}
-                onCredit={async () => {
-                  setBusy("credit");
-                  try {
-                    await credit({ data: { amountCents: 2000 } });
-                    await refresh();
-                  } finally {
-                    setBusy(null);
-                  }
-                }}
-              />
-            )}
           </div>
         </GatePanel>
       ) : (
@@ -356,19 +326,5 @@ function WalletChip({ balanceCents }: { balanceCents: number }) {
       <span className="text-muted-foreground">PGX Wallet:</span>
       <span className="font-semibold">{fmtDollars(balanceCents)}</span>
     </div>
-  );
-}
-
-function DevCreditButton({
-  busy,
-  onCredit,
-}: {
-  busy: boolean;
-  onCredit: () => void | Promise<void>;
-}) {
-  return (
-    <Button variant="outline" disabled={busy} onClick={() => void onCredit()}>
-      <Plus className="h-4 w-4" /> +$20 test credit
-    </Button>
   );
 }

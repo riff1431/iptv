@@ -8,9 +8,8 @@ import { createCipheriv, createDecipheriv, randomBytes, createHash } from "crypt
 const PREFIX = "enc:v1:";
 
 function getKey(): Buffer {
-  const raw =
-    process.env.IPTV_ENCRYPTION_KEY ||
-    "e7d3f82a1c904b5e671829340abcfd8192837465543210fedcba9876543210ab";
+  const raw = process.env.IPTV_ENCRYPTION_KEY;
+  if (!raw) throw new Error("IPTV_ENCRYPTION_KEY not configured");
   return createHash("sha256").update(raw, "utf8").digest();
 }
 
