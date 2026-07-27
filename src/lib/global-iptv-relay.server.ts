@@ -34,6 +34,117 @@ const resourceCache = new Map<string, RelayResource>();
 const resourceInflight = new Map<string, Promise<RelayResource>>();
 let resourceCacheBytes = 0;
 
+// ---------------------------------------------------------------------------
+// L2 cache: Cloudflare Cache API (caches.default).
+//
+// The Maps above are module-level, i.e. per-isolate. On Cloudflare Workers
+// (many short-lived isolates per datacenter) each isolate starts with empty
+// Maps, so every isolate independently fetches the Xtream upstream — overrun
+// the provider's connection limit (HTTP 458) and thrash through retries. That
+// is the root cause of the multi-minute startup buffering seen in production
+// but not locally (local = one long-lived Node process, so the Maps persist
+// and a single upstream fetch fans out to all viewers).
+//
+// caches.default is shared across every isolate in a datacenter, which restores
+// that "one fetch, many viewers" fan-out on production. It is undefined in
+// local Node dev, where we transparently fall back to the in-memory Maps, so
+// local behavior is unchanged.
+type RelayCache = {
+  match: (req: Request) => Promise<Response | undefined>;
+  put: (req: Request, res: Response) => Promise<void>;
+};
+const sharedCache: RelayCache | null = (() => {
+  try {
+    const c = (globalThis as { caches?: { default?: RelayCache } }).caches;
+    return c?.default ?? null;
+  } catch {
+    return null;
+  }
+})();
+
+function playlistCacheReq(key: string): Request {
+  return new Request(`https://pgx-iptv-cache.internal/playlist/${encodeURIComponent(key)}`, {
+    method: "GET",
+  });
+}
+function resourceCacheReq(key: string): Request {
+  return new Request(`https://pgx-iptv-cache.internal/resource/${encodeURIComponent(key)}`, {
+    method: "GET",
+  });
+}
+
+async function l2GetPlaylist(key: string): Promise<string | null> {
+  if (!sharedCache) return null;
+  try {
+    const cached = await sharedCache.match(playlistCacheReq(key));
+    if (!cached || !cached.ok) return null;
+    const fetchedAt = Number(cached.headers.get("x-fetched-at") || 0);
+    if (Date.now() - fetchedAt >= PLAYLIST_TTL_MS) return null;
+    return await cached.text();
+  } catch {
+    return null;
+  }
+}
+async function l2PutPlaylist(key: string, body: string): Promise<void> {
+  if (!sharedCache) return;
+  try {
+    await sharedCache.put(
+      playlistCacheReq(key),
+      new Response(body, {
+        headers: {
+          "content-type": "text/plain; charset=utf-8",
+          "x-fetched-at": String(Date.now()),
+          "cache-control": `max-age=${Math.ceil(PLAYLIST_TTL_MS / 1000)}`,
+        },
+      }),
+    );
+  } catch {
+    /* best-effort; L1 still serves. */
+  }
+}
+
+async function l2GetResource(key: string): Promise<RelayResource | null> {
+  if (!sharedCache) return null;
+  try {
+    const cached = await sharedCache.match(resourceCacheReq(key));
+    if (!cached || !cached.ok) return null;
+    const fetchedAt = Number(cached.headers.get("x-fetched-at") || 0);
+    if (Date.now() - fetchedAt >= RESOURCE_TTL_MS) return null;
+    const bytes = new Uint8Array(await cached.arrayBuffer());
+    return {
+      fetchedAt,
+      bytes,
+      contentType: cached.headers.get("x-content-type") || "application/octet-stream",
+      finalUrl: cached.headers.get("x-final-url") || "",
+    };
+  } catch {
+    return null;
+  }
+}
+async function l2PutResource(key: string, entry: RelayResource): Promise<void> {
+  if (!sharedCache) return;
+  try {
+    // Copy into a fresh ArrayBuffer so the body is a plain ArrayBuffer (valid
+    // BodyInit on both runtimes; sidesteps the Uint8Array<ArrayBufferLike> typing).
+    const buf = new ArrayBuffer(entry.bytes.byteLength);
+    new Uint8Array(buf).set(entry.bytes);
+    await sharedCache.put(
+      resourceCacheReq(key),
+      new Response(buf, {
+        headers: {
+          "content-type": "application/octet-stream",
+          "x-content-type": entry.contentType,
+          "x-final-url": entry.finalUrl,
+          "x-fetched-at": String(entry.fetchedAt),
+          "cache-control": `max-age=${Math.ceil(RESOURCE_TTL_MS / 1000)}`,
+        },
+      }),
+    );
+  } catch {
+    /* best-effort. */
+  }
+}
+
 export class IptvRelayUpstreamError extends Error {
   constructor(
     public readonly status: number,
@@ -208,6 +319,13 @@ export async function getSharedGlobalPlaylist(
   const cached = playlistCache.get(key);
   if (cached && now - cached.fetchedAt < PLAYLIST_TTL_MS) return cached.body;
 
+  // L2: cross-isolate Cache API (production). Null in local Node dev.
+  const l2 = await l2GetPlaylist(key);
+  if (l2 !== null) {
+    playlistCache.set(key, { fetchedAt: Date.now(), body: l2 });
+    return l2;
+  }
+
   const inflight = playlistInflight.get(key);
   if (inflight) return (await inflight).body;
 
@@ -235,6 +353,7 @@ export async function getSharedGlobalPlaylist(
         if (oldestKey) playlistCache.delete(oldestKey);
       }
       playlistCache.set(key, entry);
+      void l2PutPlaylist(key, entry.body); // best-effort cross-isolate write
       return entry;
     } catch (error) {
       if ((error as { name?: string } | null)?.name === "AbortError") {
@@ -264,6 +383,17 @@ export async function getSharedGlobalResource(
     return cached;
   }
 
+  // L2: cross-isolate Cache API (production). Null in local Node dev.
+  const l2 = await l2GetResource(key);
+  if (l2) {
+    if (l2.bytes.byteLength <= MAX_CACHEABLE_RESOURCE_BYTES) {
+      resourceCache.set(key, l2);
+      resourceCacheBytes += l2.bytes.byteLength;
+      pruneResourceCache(Date.now());
+    }
+    return l2;
+  }
+
   const inflight = resourceInflight.get(key);
   if (inflight) return inflight;
 
@@ -287,6 +417,7 @@ export async function getSharedGlobalResource(
         resourceCache.set(key, entry);
         resourceCacheBytes += bytes.byteLength;
         pruneResourceCache(Date.now());
+        void l2PutResource(key, entry); // best-effort cross-isolate write
       }
       return entry;
     } catch (error) {
