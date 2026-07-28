@@ -680,6 +680,8 @@ function TvConfigCard({
             value={form.username}
             onChange={(v) => setForm({ ...form, username: v })}
             placeholder="user"
+            name={`iptv-user-${slot}`}
+            autoComplete="off"
           />
           <Field
             label="Password"
@@ -687,6 +689,8 @@ function TvConfigCard({
             value={form.password}
             onChange={(v) => setForm({ ...form, password: v })}
             placeholder="••••••••"
+            name={`iptv-pass-${slot}`}
+            autoComplete="new-password"
           />
         </div>
         <div className="grid grid-cols-[1fr_auto] items-end gap-3">
@@ -1032,6 +1036,8 @@ function Field({
   type = "text",
   error,
   maxLength,
+  autoComplete = "off",
+  name,
 }: {
   label: string;
   value: string;
@@ -1040,6 +1046,11 @@ function Field({
   type?: string;
   error?: string;
   maxLength?: number;
+  // Defaults to "off" — these admin fields are never a browser login form, so
+  // we must stop password managers from autofilling them with the admin's site
+  // credentials (which corrupts the saved IPTV username/password).
+  autoComplete?: string;
+  name?: string;
 }) {
   const invalid = !!error;
   return (
@@ -1049,6 +1060,8 @@ function Field({
       </span>
       <input
         type={type}
+        name={name}
+        autoComplete={autoComplete}
         value={value}
         onChange={(e) => onChange(e.target.value)}
         placeholder={placeholder}

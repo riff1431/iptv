@@ -23,9 +23,15 @@ export const startLoungeStream = createServerFn({ method: "POST" })
   .middleware([requireAdminServer])
   .validator((d: unknown) => tvIdInput.parse(d))
   .handler(async ({ data, context }) => {
-    const { data: tv, error } = await context.supabase
+    // SELECT on `tvs` is revoked from the `authenticated` role (it was revoked
+    // to protect the credential columns), so read via the service-role admin
+    // client — same pattern as tvs-admin.functions.ts. This fn is already
+    // admin-gated by requireAdminServer. Only the columns we actually use are
+    // selected (server_url/enabled were read but never used).
+    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+    const { data: tv, error } = await supabaseAdmin
       .from("tvs")
-      .select("id, enabled, selected_channel_id, server_url")
+      .select("id, selected_channel_id")
       .eq("id", data.tvId)
       .maybeSingle();
     if (error) throw new Error(error.message);
