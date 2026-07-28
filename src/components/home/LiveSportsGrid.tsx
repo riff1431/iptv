@@ -1,15 +1,6 @@
-import { useMemo } from "react";
 import { Link } from "@tanstack/react-router";
-import { useQuery } from "@tanstack/react-query";
 import { Radio, Users, ChevronRight, Play } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { publicMatchesQuery } from "@/lib/matches.public.functions";
-import { sportImage } from "@/lib/sport-image";
-
-import sportNba from "@/assets/pgx/sport-nba.jpg";
-import sportSoccer from "@/assets/pgx/sport-soccer.jpg";
-import sportNhl from "@/assets/pgx/sport-nhl.jpg";
-import sportNfl from "@/assets/pgx/sport-nfl.jpg";
 import creator1 from "@/assets/pgx/creator-1.jpg";
 import creator2 from "@/assets/pgx/creator-2.jpg";
 import creator3 from "@/assets/pgx/creator-3.jpg";
@@ -24,44 +15,43 @@ export type LiveCardItem = {
   creatorImg: string;
 };
 
-const CREATOR_AVATARS = [creator1, creator2, creator3, creator4];
-function pickAvatar(seed: string): string {
-  let h = 0;
-  for (let i = 0; i < seed.length; i++) h = (h * 31 + seed.charCodeAt(i)) | 0;
-  return CREATOR_AVATARS[Math.abs(h) % CREATOR_AVATARS.length];
-}
-
+/**
+ * Fixed marketing mock-ups for the home "LIVE IN SPORTS LOUNGE" grid.
+ * Intentionally hardcoded (NBA, NHL, FIFA, Cricket) with realistic matchup
+ * titles, female demo creators, and large viewer counts. These do NOT reflect
+ * live database state. Sport backgrounds are served from /public/images.
+ */
 const DEFAULT_ITEMS: LiveCardItem[] = [
   {
-    id: "2674059e-a58f-4e27-a86d-0cc14bf4b711",
-    title: "NBA Playoffs",
+    id: "demo-nba",
+    title: "Lakers vs Celtics",
     creatorName: "LunaLove",
-    viewers: 1248,
-    sportImg: sportNba,
+    viewers: 12480,
+    sportImg: "/images/sport-nba.jpg",
     creatorImg: creator1,
   },
   {
-    id: "83acf813-e0db-46ba-aa15-3b9fb8ccd2a8",
-    title: "Champions League",
+    id: "demo-nhl",
+    title: "Rangers vs Bruins",
     creatorName: "BellaBanks",
-    viewers: 982,
-    sportImg: sportSoccer,
+    viewers: 9820,
+    sportImg: "/images/sport-nhl.jpg",
     creatorImg: creator2,
   },
   {
-    id: "058dd5fe-312f-44b5-87dc-c5e954dc6355",
-    title: "NHL Live",
+    id: "demo-fifa",
+    title: "Real Madrid vs Barcelona",
     creatorName: "VickyVibes",
-    viewers: 723,
-    sportImg: sportNhl,
+    viewers: 18540,
+    sportImg: "/images/sport-soccer.jpg",
     creatorImg: creator3,
   },
   {
-    id: "2f318f85-efcf-4cf1-8a83-78f870d3c0dd",
-    title: "NFL Sunday",
+    id: "demo-cricket",
+    title: "India vs Pakistan",
     creatorName: "AaliyahXO",
-    viewers: 1105,
-    sportImg: sportNfl,
+    viewers: 24180,
+    sportImg: "/images/sport-cricket.jpg",
     creatorImg: creator4,
   },
 ];
@@ -71,24 +61,9 @@ type Props = {
 };
 
 export default function LiveSportsGrid({ items }: Props) {
-  const { data: dbMatches } = useQuery(publicMatchesQuery());
-
-  const displayCards: LiveCardItem[] = useMemo(() => {
-    if (items && items.length > 0) return items;
-    if (dbMatches && dbMatches.length > 0) {
-      return dbMatches.slice(0, 4).map((m) => {
-        return {
-          id: m.id,
-          title: m.title || "Live Match",
-          creatorName: m.hostDisplayName || "PGX Host",
-          viewers: m.viewerCount,
-          sportImg: m.thumbnailUrl || sportImage(m.sport || m.title || ""),
-          creatorImg: pickAvatar(m.ownerUserId || m.id),
-        };
-      });
-    }
-    return DEFAULT_ITEMS;
-  }, [dbMatches, items]);
+  // Always the 4 fixed demo mock-ups, unless a caller overrides via `items`.
+  const displayCards: LiveCardItem[] =
+    items && items.length > 0 ? items : DEFAULT_ITEMS;
 
   return (
     <section className="rounded-2xl border border-slate-800/90 bg-slate-950/80 p-5 md:p-6 shadow-2xl backdrop-blur-md">
