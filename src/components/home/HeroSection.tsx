@@ -1,13 +1,10 @@
-import { useState } from "react";
 import { Link } from "@tanstack/react-router";
-import { Tv, MessageCircle, Flame, Video, ArrowRight, Play, CheckCircle2, X } from "lucide-react";
+import { Tv, MessageCircle, Flame, Video, ArrowRight, CheckCircle2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import heroImg from "@/assets/pgx/hero.jpg";
 import creatorLive from "@/assets/pgx/creator-live.jpg";
 
 export default function HeroSection() {
-  const [showTrailer, setShowTrailer] = useState(false);
-
   return (
     <section className="relative overflow-hidden rounded-3xl bg-gradient-to-b from-slate-950 via-slate-900 to-slate-950 p-6 md:p-10 border border-slate-800/80 shadow-2xl">
       {/* Background Glow Effects */}
@@ -97,17 +94,6 @@ export default function HeroSection() {
                 <ArrowRight className="ml-2 h-5 w-5" />
               </Button>
             </Link>
-
-            <Button
-              type="button"
-              variant="outline"
-              size="lg"
-              onClick={() => setShowTrailer(true)}
-              className="h-12 px-6 rounded-xl font-bold border-slate-700 bg-slate-900/80 hover:bg-slate-800 text-white hover:text-white transition-all"
-            >
-              WATCH TRAILER
-              <Play className="ml-2 h-4 w-4 fill-pink-500 text-pink-500" />
-            </Button>
           </div>
         </div>
 
@@ -152,28 +138,6 @@ export default function HeroSection() {
         </div>
       </div>
 
-      {/* Video Trailer Modal */}
-      {showTrailer && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4 backdrop-blur-sm">
-          <div className="relative w-full max-w-3xl overflow-hidden rounded-2xl border border-slate-800 bg-slate-950 p-2 shadow-2xl">
-            <button
-              onClick={() => setShowTrailer(false)}
-              className="absolute top-4 right-4 z-10 rounded-full bg-slate-900/80 p-2 text-slate-300 hover:text-white hover:bg-slate-800"
-            >
-              <X className="h-5 w-5" />
-            </button>
-            <div className="aspect-video w-full">
-              <iframe
-                className="h-full w-full rounded-xl"
-                src="https://www.youtube-nocookie.com/embed/dQw4w9WgXcQ?autoplay=1"
-                title="PGX Sports Lounge Trailer"
-                allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-                allowFullScreen
-              />
-            </div>
-          </div>
-        </div>
-      )}
     </section>
   );
 }
