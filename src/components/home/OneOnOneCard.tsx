@@ -47,7 +47,8 @@ export default function OneOnOneCard() {
           </p>
           <Link
             ref={ref}
-            to="/arena"
+            to="/auth"
+            search={{ mode: "signup" }}
             onClick={() =>
               trackEvent("cta_one_on_one_click", { location: "home_one_on_one" })
             }
