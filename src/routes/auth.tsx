@@ -1,7 +1,6 @@
 import { createFileRoute, useNavigate, useSearch, Link, ClientOnly } from "@tanstack/react-router";
 import { useEffect, useRef, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
-import { lovable } from "@/integrations/lovable";
 import { useAuth } from "@/hooks/useAuth";
 import { Eye, EyeOff, Mail, User, Lock, Loader2 } from "lucide-react";
 import { toast } from "sonner";
@@ -331,32 +330,24 @@ function SocialButtons() {
   async function signInWithGoogle() {
     setBusy(true);
     trackEvent("auth_start", { method: "google", mode: "oauth" });
-    try {
-      const result = await lovable.auth.signInWithOAuth("google", {
-        redirect_uri: window.location.origin,
-      });
-
-      if (result.error) {
-        toast.error(result.error.message ?? "Google sign-in failed");
-        setBusy(false);
-        return;
-      }
-      if (result.redirected) return;
-      // session set — auth listener will redirect
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Google sign-in failed");
+    // Use Supabase's native OAuth so the Google provider configured in the
+    // Supabase dashboard is the one in play (the Lovable broker at
+    // /~oauth/initiate only exists on Lovable-hosted deploys, not self-host).
+    const { error } = await supabase.auth.signInWithOAuth({
+      provider: "google",
+      options: { redirectTo: window.location.origin },
+    });
+    if (error) {
+      toast.error(error.message);
       setBusy(false);
     }
+    // On success the browser redirects to Google; on return, supabase-js
+    // detects the session from the URL and onAuthStateChange takes over.
   }
-
-  const notSupported = (name: string) =>
-    toast.info(`${name} sign-in is coming soon`, {
-      description: "For now, use Google or email to continue.",
-    });
 
   return (
     <div
-      className="grid grid-cols-1 gap-2.5 min-[360px]:grid-cols-3"
+      className="grid grid-cols-1 gap-2.5"
       role="group"
       aria-label="Sign in with a social account"
       aria-busy={busy}
@@ -372,30 +363,6 @@ function SocialButtons() {
           <svg className="h-5 w-5" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
             <path fill="#EA4335" d="M12 10.2v3.9h5.5c-.24 1.42-1.66 4.15-5.5 4.15-3.31 0-6.01-2.74-6.01-6.13S8.69 5.99 12 5.99c1.88 0 3.14.8 3.86 1.49l2.63-2.54C16.9 3.4 14.66 2.4 12 2.4 6.86 2.4 2.7 6.56 2.7 11.7s4.16 9.3 9.3 9.3c5.37 0 8.93-3.77 8.93-9.08 0-.61-.07-1.08-.15-1.55H12z"/>
             <path fill="#34A853" d="M3.88 7.34l3.2 2.35C7.86 8.06 9.79 6.86 12 6.86c1.68 0 2.87.72 3.53 1.34l2.6-2.55C16.62 4.2 14.55 3.4 12 3.4c-3.42 0-6.35 1.96-7.79 4.79l-.33-.85z"/>
-          </svg>
-        }
-      />
-      <SocialBtn
-        className={btn}
-        disabled={busy}
-        aria-label="Sign in with Twitter (coming soon)"
-        onClick={() => notSupported("Twitter")}
-        label="Twitter"
-        icon={
-          <svg className="h-5 w-5" viewBox="0 0 24 24" fill="#1DA1F2" aria-hidden="true" focusable="false">
-            <path d="M23 4.55a9.36 9.36 0 0 1-2.68.74 4.68 4.68 0 0 0 2.05-2.58 9.34 9.34 0 0 1-2.97 1.13 4.67 4.67 0 0 0-7.95 4.26A13.26 13.26 0 0 1 1.64 3.16a4.66 4.66 0 0 0 1.44 6.23 4.63 4.63 0 0 1-2.11-.58v.06a4.67 4.67 0 0 0 3.74 4.58 4.7 4.7 0 0 1-2.1.08 4.67 4.67 0 0 0 4.36 3.24A9.36 9.36 0 0 1 0 18.7 13.22 13.22 0 0 0 7.15 20.8c8.58 0 13.27-7.1 13.27-13.27v-.6A9.44 9.44 0 0 0 23 4.55z"/>
-          </svg>
-        }
-      />
-      <SocialBtn
-        className={btn}
-        disabled={busy}
-        aria-label="Sign in with Discord (coming soon)"
-        onClick={() => notSupported("Discord")}
-        label="Discord"
-        icon={
-          <svg className="h-5 w-5" viewBox="0 0 24 24" fill="#5865F2" aria-hidden="true" focusable="false">
-            <path d="M20.32 4.37A19.79 19.79 0 0 0 15.43 3l-.24.5a17.66 17.66 0 0 1 3.83 1.24 15.14 15.14 0 0 0-13.04 0A17.66 17.66 0 0 1 9.81 3.5L9.57 3a19.79 19.79 0 0 0-4.89 1.37C1.66 8.85.87 13.2 1.26 17.48A19.9 19.9 0 0 0 7.27 20.5c.49-.67.93-1.38 1.3-2.13a12.9 12.9 0 0 1-2.06-.99c.17-.13.34-.26.5-.4a13.66 13.66 0 0 0 11.98 0c.16.14.33.27.5.4-.66.4-1.36.73-2.07.99.38.75.82 1.46 1.31 2.13a19.9 19.9 0 0 0 6.01-3.02c.5-4.97-.79-9.28-4.42-13.11zM8.52 15.02c-1.2 0-2.19-1.1-2.19-2.45s.97-2.46 2.19-2.46 2.21 1.11 2.19 2.46c0 1.35-.98 2.45-2.19 2.45zm6.96 0c-1.2 0-2.19-1.1-2.19-2.45s.97-2.46 2.19-2.46 2.21 1.11 2.19 2.46c0 1.35-.97 2.45-2.19 2.45z"/>
           </svg>
         }
       />
