@@ -51,6 +51,7 @@ export function IPTVPlayer({ url, poster }: Props) {
   const [error, setError] = useState<string | null>(null);
   const [attempt, setAttempt] = useState(0);
   const [fallbackToHls, setFallbackToHls] = useState(false);
+  const [autoplayBlocked, setAutoplayBlocked] = useState(false);
 
   // Reset failover on channel URL change
   useEffect(() => {
@@ -81,17 +82,57 @@ export function IPTVPlayer({ url, poster }: Props) {
     setLoadingStage("Connecting…");
     setLoadProgress(null);
     setError(null);
+    setAutoplayBlocked(false);
     let hls: Hls | null = null;
     let mpegtsPlayer: mpegts.Player | null = null;
     let recoverAttempts = 0;
+    let cancelled = false;
 
     const clearLoading = () => {
       setLoading(false);
       setLoadProgress(null);
       recoverAttempts = 0;
     };
-    const onPlaying = () => clearLoading();
-    const onCanPlay = () => clearLoading();
+    const markAutoplayBlocked = () => {
+      if (cancelled) return;
+      setAutoplayBlocked(true);
+      clearLoading();
+    };
+    const startPlayback = () => {
+      const attemptPlay = video.play();
+      if (!attemptPlay || typeof attemptPlay.then !== "function") return;
+      void attemptPlay
+        .then(() => {
+          if (!cancelled) setAutoplayBlocked(false);
+        })
+        .catch((playError: unknown) => {
+          if (cancelled) return;
+          const name = (playError as { name?: string } | null)?.name;
+          if (name === "NotAllowedError" && !video.muted) {
+            // Chrome blocks audible autoplay in fresh/incognito sessions. Retry
+            // muted so live playback starts, while keeping the volume control
+            // available for an explicit user unmute.
+            video.muted = true;
+            setMuted(true);
+            void video
+              .play()
+              .then(() => setAutoplayBlocked(false))
+              .catch(markAutoplayBlocked);
+          } else if (name === "NotAllowedError") {
+            markAutoplayBlocked();
+          }
+          // AbortError is normal while HLS is still attaching. onCanPlay below
+          // retries once media is actually ready.
+        });
+    };
+    const onPlaying = () => {
+      setAutoplayBlocked(false);
+      clearLoading();
+    };
+    const onCanPlay = () => {
+      clearLoading();
+      startPlayback();
+    };
     let lastTime = 0;
     let lastAdvanceTime = Date.now();
     let stallCheckTimer: number | null = null;
@@ -110,7 +151,7 @@ export function IPTVPlayer({ url, poster }: Props) {
       // Debounce transient 50ms MSE buffer catch-ups — only show buffering if stall > 600ms
       if (waitingTimer) window.clearTimeout(waitingTimer);
       waitingTimer = window.setTimeout(() => {
-        if (!error && video.paused) {
+        if (!video.paused) {
           setLoading(true);
           setLoadingStage("Buffering…");
           setLoadProgress(null);
@@ -260,6 +301,7 @@ export function IPTVPlayer({ url, poster }: Props) {
         : targetPlaybackUrl;
       hls = new Hls({
         enableWorker: true,
+        progressive: true,
         // IPTV-tuned live settings — generous network tolerance, relaxed polling.
         lowLatencyMode: false, // Turn off aggressive sub-second polling to eliminate HTTP 458 provider line locks
         liveSyncDurationCount: 2, // Start closer to live while retaining a small jitter reserve
@@ -343,11 +385,10 @@ export function IPTVPlayer({ url, poster }: Props) {
     } else {
       video.src = targetPlaybackUrl;
     }
-    video.play().catch(() => {
-      /* autoplay may be blocked; the custom controls let the user start */
-    });
+    startPlayback();
 
     return () => {
+      cancelled = true;
       if (waitingTimer) window.clearTimeout(waitingTimer);
       if (stallCheckTimer) window.clearInterval(stallCheckTimer);
       video.removeEventListener("playing", onPlaying);
@@ -626,6 +667,7 @@ export function IPTVPlayer({ url, poster }: Props) {
         ref={videoRef}
         className="h-full w-full object-contain"
         playsInline
+        autoPlay
         preload="auto"
         poster={safePoster}
         onClick={togglePlay}
@@ -633,6 +675,28 @@ export function IPTVPlayer({ url, poster }: Props) {
         // provides play/pause, volume and fullscreen with keyboard support.
       />
 
+      {autoplayBlocked && !error && (
+        <button
+          type="button"
+          className="absolute inset-0 z-[6] flex flex-col items-center justify-center gap-3 bg-black/70 text-white transition hover:bg-black/60 focus:outline-none focus-visible:ring-2 focus-visible:ring-white/80"
+          aria-label="Click to start playback"
+          onClick={() => {
+            const video = videoRef.current;
+            if (!video) return;
+            video.muted = true;
+            setMuted(true);
+            void video
+              .play()
+              .then(() => setAutoplayBlocked(false))
+              .catch(() => {});
+          }}
+        >
+          <span className="flex h-14 w-14 items-center justify-center rounded-full bg-white/15 ring-1 ring-white/40">
+            <Play className="h-7 w-7" />
+          </span>
+          <span className="text-sm font-medium">Click to play</span>
+        </button>
+      )}
       {loading && !error && (
         <div
           role="status"
