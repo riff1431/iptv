@@ -12,8 +12,11 @@ import {
   Crown,
 } from "lucide-react";
 import { AppShell } from "@/components/AppShell";
-import { publicLoungesQuery } from "@/lib/lounges.public.functions";
+import { publicLoungesQuery, type PublicTv } from "@/lib/lounges.public.functions";
 import { publicMatchesQuery } from "@/lib/matches.public.functions";
+import { getLoungeTvTiles, type LobbyTvTile } from "@/lib/lounge-tv-tiles";
+import { SportImage } from "@/components/SportImage";
+import { usePublicLoungesRealtime } from "@/hooks/usePublicLoungesRealtime";
 
 import sportNba from "@/assets/pgx/sport-nba.jpg";
 import sportSoccer from "@/assets/pgx/sport-soccer.jpg";
@@ -41,9 +44,41 @@ export const Route = createFileRoute("/lobby/")({
 type LobbyTypeFilter = "all" | "regular" | "creator";
 type SportCategory = "all" | "football" | "basketball" | "mma" | "hockey" | "other";
 
+/** A regular-lobby card. `tvs` is non-null for DB-backed lounges, null for the
+ *  static marketing fallback (which renders the `thumbnails` collage instead). */
+type RegularLobbyCard = {
+  id: string;
+  title: string;
+  subtitle: string;
+  viewers: string;
+  fee: string;
+  gamesBadge: string;
+  category: string;
+  matchId: string;
+  thumbnails: string[];
+  tvs: PublicTv[] | null;
+};
+
+type CreatorLobbyCard = {
+  id: string;
+  creatorName: string;
+  subtitle: string;
+  viewers: string;
+  fee: string;
+  avatar: string;
+  category: string;
+  matchId: string;
+  thumbnails: string[];
+  tvs: PublicTv[] | null;
+};
+
 export function DedicatedLobbyPage() {
   const { data: dbLounges } = useQuery(publicLoungesQuery());
   const { data: dbMatches } = useQuery(publicMatchesQuery());
+
+  // Live-sync: when an admin saves a TV channel, refetch public lounges so the
+  // cards reflect it within ~1s without a page refresh.
+  usePublicLoungesRealtime();
 
   const [selectedType, setSelectedType] = useState<LobbyTypeFilter>("all");
   const [selectedCategory, setSelectedCategory] = useState<SportCategory>("all");
@@ -147,7 +182,7 @@ export function DedicatedLobbyPage() {
   ];
 
   // Dynamic Supabase Regular Lobbies Mapping
-  const regularLobbies = useMemo(() => {
+  const regularLobbies = useMemo<RegularLobbyCard[]>(() => {
     if (dbLounges && dbLounges.length > 0) {
       const regularDb = dbLounges.filter((l) => l.entryFeeCents <= 500);
       if (regularDb.length > 0) {
@@ -162,14 +197,15 @@ export function DedicatedLobbyPage() {
           matchId:
             dbMatches?.[i % (dbMatches.length || 1)]?.id || "2674059e-a58f-4e27-a86d-0cc14bf4b711",
           thumbnails: defaultRegular[i % defaultRegular.length].thumbnails,
+          tvs: l.tvs,
         }));
       }
     }
-    return defaultRegular;
+    return defaultRegular.map((d) => ({ ...d, tvs: null }));
   }, [dbLounges, dbMatches]);
 
   // Dynamic Supabase Creator Lobbies Mapping
-  const creatorLobbies = useMemo(() => {
+  const creatorLobbies = useMemo<CreatorLobbyCard[]>(() => {
     if (dbLounges && dbLounges.length > 0) {
       const creatorDb = dbLounges.filter((l) => l.entryFeeCents > 500);
       if (creatorDb.length > 0) {
@@ -184,10 +220,11 @@ export function DedicatedLobbyPage() {
           matchId:
             dbMatches?.[i % (dbMatches.length || 1)]?.id || "2674059e-a58f-4e27-a86d-0cc14bf4b711",
           thumbnails: defaultCreator[i % defaultCreator.length].thumbnails,
+          tvs: l.tvs,
         }));
       }
     }
-    return defaultCreator;
+    return defaultCreator.map((d) => ({ ...d, tvs: null }));
   }, [dbLounges, dbMatches]);
 
   // Filtered Lists
@@ -366,16 +403,20 @@ export function DedicatedLobbyPage() {
 
                       {/* 4 Games Thumbnail Grid Collage */}
                       <div className="grid grid-cols-4 gap-1 overflow-hidden rounded-xl bg-slate-950 aspect-[16/7]">
-                        {lobby.thumbnails.map((img, i) => (
-                          <div key={i} className="relative h-full w-full overflow-hidden">
-                            <img
-                              src={img}
-                              alt=""
-                              className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-110"
-                            />
-                            <div className="absolute inset-0 bg-slate-950/30" />
-                          </div>
-                        ))}
+                        {lobby.tvs
+                          ? getLoungeTvTiles(lobby.tvs).map((tile) => (
+                              <LobbyTvTileCell key={tile.slot} tile={tile} />
+                            ))
+                          : lobby.thumbnails.map((img, i) => (
+                              <div key={i} className="relative h-full w-full overflow-hidden">
+                                <img
+                                  src={img}
+                                  alt=""
+                                  className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-110"
+                                />
+                                <div className="absolute inset-0 bg-slate-950/30" />
+                              </div>
+                            ))}
                       </div>
                     </div>
 
@@ -435,16 +476,20 @@ export function DedicatedLobbyPage() {
 
                       {/* 4 Games Thumbnail Grid Collage */}
                       <div className="grid grid-cols-4 gap-1 overflow-hidden rounded-xl bg-slate-950 aspect-[16/7]">
-                        {lobby.thumbnails.map((img, i) => (
-                          <div key={i} className="relative h-full w-full overflow-hidden">
-                            <img
-                              src={img}
-                              alt=""
-                              className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-110"
-                            />
-                            <div className="absolute inset-0 bg-slate-950/30" />
-                          </div>
-                        ))}
+                        {lobby.tvs
+                          ? getLoungeTvTiles(lobby.tvs).map((tile) => (
+                              <LobbyTvTileCell key={tile.slot} tile={tile} />
+                            ))
+                          : lobby.thumbnails.map((img, i) => (
+                              <div key={i} className="relative h-full w-full overflow-hidden">
+                                <img
+                                  src={img}
+                                  alt=""
+                                  className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-110"
+                                />
+                                <div className="absolute inset-0 bg-slate-950/30" />
+                              </div>
+                            ))}
                       </div>
                     </div>
 
@@ -538,5 +583,51 @@ export function DedicatedLobbyPage() {
         </div>
       </div>
     </AppShell>
+  );
+}
+
+/**
+ * One cell of the 4-wide TV collage on a lobby card. Renders the admin's real
+ * TV config: the channel logo (or a sport-derived backdrop), a "TV N" badge,
+ * and the matchup line. Unconfigured slots show a dimmed placeholder so the
+ * 4-cell frame is always intact.
+ */
+function LobbyTvTileCell({ tile }: { tile: LobbyTvTile }) {
+  if (!tile.configured) {
+    return (
+      <div className="relative h-full w-full overflow-hidden bg-slate-900">
+        <div className="absolute inset-0 flex flex-col items-center justify-center gap-0.5">
+          <span className="text-[9px] font-extrabold uppercase tracking-wider text-white/25">
+            TV {tile.slot}
+          </span>
+          <span className="text-[7px] uppercase tracking-widest text-white/15">Empty</span>
+        </div>
+      </div>
+    );
+  }
+  return (
+    <div className="relative h-full w-full overflow-hidden bg-slate-950">
+      {tile.channelLogo ? (
+        <img
+          src={tile.channelLogo}
+          alt=""
+          className="absolute inset-0 h-full w-full object-cover"
+        />
+      ) : (
+        <SportImage
+          sport={tile.sport}
+          alt={tile.matchup || tile.displayName || `TV ${tile.slot}`}
+        />
+      )}
+      <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-transparent to-black/20" />
+      <span className="absolute left-1 top-1 rounded bg-black/70 px-1 py-0.5 text-[8px] font-extrabold uppercase tracking-wider text-white backdrop-blur-sm">
+        TV {tile.slot}
+      </span>
+      {(tile.matchup || tile.displayName) && (
+        <span className="absolute inset-x-1 bottom-1 truncate text-[8px] font-bold text-white/90">
+          {tile.matchup || tile.displayName}
+        </span>
+      )}
+    </div>
   );
 }

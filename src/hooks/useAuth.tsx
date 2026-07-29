@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, useCallback, useRef, createContext, useContext, type ReactNode } from "react";
+import { useEffect, useMemo, useState, useCallback, useRef, useSyncExternalStore, createContext, useContext, type ReactNode } from "react";
 import type { User } from "@supabase/supabase-js";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
@@ -20,7 +20,8 @@ export interface AuthState {
 const PROJECT_ID = typeof window !== "undefined" ? import.meta.env.VITE_SUPABASE_PROJECT_ID : undefined;
 const AUTH_KEY = PROJECT_ID ? `sb-${PROJECT_ID}-auth-token` : null;
 
-function getInitialUser(): User | null {
+/** Read the cached Supabase session user from localStorage (client only). */
+function readCachedUser(): User | null {
   if (typeof window === "undefined" || !AUTH_KEY) return null;
   try {
     const val = window.localStorage.getItem(AUTH_KEY);
@@ -30,6 +31,45 @@ function getInitialUser(): User | null {
   } catch {
     return null;
   }
+}
+
+// ---------------------------------------------------------------------------
+// Hydration-safe user store.
+//
+// Previously `useState(readCachedUser)` seeded the user from localStorage on
+// the client but returned `null` on the server. That server/client divergence
+// caused a hydration mismatch in AppShell (logged-out header on the server,
+// logged-in header on the client) that escalated to the root error boundary
+// ("This screen didn't load") — fixed only by a manual reload.
+//
+// `useSyncExternalStore` is React's prescribed fix for reading client-only
+// state during initial render: it returns the `null` server snapshot during
+// SSR *and* the first client render (so hydration matches), then swaps in the
+// real client snapshot immediately after hydration. No mismatch, and no
+// logged-out flash (the cached user is already populated at module load).
+// ---------------------------------------------------------------------------
+let currentUser: User | null = typeof window !== "undefined" ? readCachedUser() : null;
+const userListeners = new Set<() => void>();
+
+function subscribeUser(notify: () => void) {
+  userListeners.add(notify);
+  return () => {
+    userListeners.delete(notify);
+  };
+}
+
+function getUserSnapshot(): User | null {
+  return currentUser;
+}
+
+function getUserServerSnapshot(): User | null {
+  return null;
+}
+
+function setUserStore(next: User | null) {
+  if (next === currentUser) return;
+  currentUser = next;
+  for (const l of userListeners) l();
 }
 
 async function fetchRoles(userId: string): Promise<AppRole[]> {
@@ -59,7 +99,7 @@ function notifyAdminGrantedOnce(userId: string) {
 const AuthContext = createContext<AuthState | undefined>(undefined);
 
 export function useAuthState(): AuthState {
-  const [user, setUser] = useState<User | null>(getInitialUser);
+  const user = useSyncExternalStore(subscribeUser, getUserSnapshot, getUserServerSnapshot);
   const [roles, setRoles] = useState<AppRole[]>([]);
   const [loading, setLoading] = useState(true);
   const prevAdminRef = useRef<boolean | null>(null);
@@ -82,7 +122,7 @@ export function useAuthState(): AuthState {
     try {
       const { data } = await supabase.auth.getUser();
       const u = data.user ?? null;
-      setUser(u);
+      setUserStore(u);
       if (u) applyRoles(u.id, await fetchRoles(u.id));
       else {
         setRoles([]);
@@ -92,7 +132,7 @@ export function useAuthState(): AuthState {
       // Network / transient failure — treat as signed-out for this tick
       // instead of leaving `loading` stuck true, which caused downstream
       // guard components to spin and CatchBoundary to retry in a loop.
-      setUser(null);
+      setUserStore(null);
       setRoles([]);
       prevAdminRef.current = null;
     } finally {
@@ -107,7 +147,7 @@ export function useAuthState(): AuthState {
       if (!mounted) return;
       if (event === "SIGNED_IN" || event === "SIGNED_OUT" || event === "USER_UPDATED") {
         const u = session?.user ?? null;
-        setUser(u);
+        setUserStore(u);
         if (u) void fetchRoles(u.id).then((r) => applyRoles(u.id, r));
         else {
           setRoles([]);
@@ -157,7 +197,7 @@ export function useAuthState(): AuthState {
   const signOut = useCallback(async () => {
     await supabase.auth.signOut();
     clearEphemeralSession();
-    setUser(null);
+    setUserStore(null);
     setRoles([]);
     prevAdminRef.current = null;
   }, []);
@@ -189,4 +229,3 @@ export function useAuth(): AuthState {
   }
   return context;
 }
-

@@ -1,6 +1,12 @@
+import { useMemo } from "react";
 import { Link } from "@tanstack/react-router";
+import { useSuspenseQuery } from "@tanstack/react-query";
 import { Radio, Users, ChevronRight, Play } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { publicLoungesQuery } from "@/lib/lounges.public.functions";
+import { publicMatchesQuery } from "@/lib/matches.public.functions";
+import { sportImage } from "@/lib/sport-image";
+import { usePublicLoungesRealtime } from "@/hooks/usePublicLoungesRealtime";
 import creator1 from "@/assets/pgx/creator-1.jpg";
 import creator2 from "@/assets/pgx/creator-2.jpg";
 import creator3 from "@/assets/pgx/creator-3.jpg";
@@ -9,10 +15,11 @@ import creator4 from "@/assets/pgx/creator-4.jpg";
 export type LiveCardItem = {
   id: string;
   title: string;
-  creatorName: string;
   viewers: number;
   sportImg: string;
-  creatorImg: string;
+  /** Optional — present on marketing mock-ups, absent for real lounge cards. */
+  creatorName?: string;
+  creatorImg?: string;
 };
 
 /**
@@ -61,9 +68,35 @@ type Props = {
 };
 
 export default function LiveSportsGrid({ items }: Props) {
-  // Always the 4 fixed demo mock-ups, unless a caller overrides via `items`.
+  // Live-sync: when an admin saves a TV channel, refetch public lounges so the
+  // grid reflects it within ~1s without a page refresh.
+  usePublicLoungesRealtime();
+  const { data: lounges } = useSuspenseQuery(publicLoungesQuery());
+  const { data: matches } = useSuspenseQuery(publicMatchesQuery());
+
+  // Derive cards from real lounges that have at least one enabled TV. `tvs`
+  // is already server-filtered to enabled=true and sorted by slot, so tvs[0]
+  // is TV1. Falls back to DEFAULT_ITEMS (marketing mock-ups) when nothing is
+  // live, and to an explicit `items` prop when a caller overrides.
+  const liveItems: LiveCardItem[] = useMemo(() => {
+    const matchFallback = (i: number) => matches?.[i % Math.max(matches.length, 1)]?.id ?? "";
+    return (lounges ?? [])
+      .filter((l) => l.tvs.length > 0)
+      .sort((a, b) => b.viewerCount - a.viewerCount)
+      .slice(0, 4)
+      .map((l, i) => {
+        const tv = l.tvs[0];
+        return {
+          id: matchFallback(i) || l.id,
+          title: tv.matchup || l.name,
+          viewers: l.viewerCount,
+          sportImg: tv.channel_logo ?? sportImage(tv.sport),
+        } satisfies LiveCardItem;
+      });
+  }, [lounges, matches]);
+
   const displayCards: LiveCardItem[] =
-    items && items.length > 0 ? items : DEFAULT_ITEMS;
+    items && items.length > 0 ? items : liveItems.length > 0 ? liveItems : DEFAULT_ITEMS;
 
   return (
     <section className="rounded-2xl border border-slate-800/90 bg-slate-950/80 p-5 md:p-6 shadow-2xl backdrop-blur-md">
@@ -123,20 +156,28 @@ export default function LiveSportsGrid({ items }: Props) {
             {/* Overlapping Creator Profile Avatar */}
             <div className="relative px-3.5 pt-0 pb-3 flex flex-col items-start">
               <div className="relative -mt-6 mb-2 h-12 w-12 shrink-0 rounded-full border-2 border-slate-950 ring-2 ring-pink-500 overflow-hidden bg-slate-800 shadow-xl group-hover:ring-pink-400 transition-all">
-                <img
-                  src={card.creatorImg}
-                  alt={card.creatorName}
-                  className="h-full w-full object-cover"
-                />
+                {card.creatorImg ? (
+                  <img
+                    src={card.creatorImg}
+                    alt={card.creatorName ?? ""}
+                    className="h-full w-full object-cover"
+                  />
+                ) : (
+                  <div className="grid h-full w-full place-items-center bg-gradient-to-br from-pink-600/80 to-purple-600/80 text-white">
+                    <Radio className="h-5 w-5" />
+                  </div>
+                )}
               </div>
 
               <div className="min-w-0 w-full">
                 <h3 className="font-extrabold text-sm text-white group-hover:text-pink-400 transition-colors truncate">
                   {card.title}
                 </h3>
-                <div className="text-xs text-slate-400 truncate pt-0.5">
-                  with <span className="text-slate-200 font-semibold">{card.creatorName}</span>
-                </div>
+                {card.creatorName && (
+                  <div className="text-xs text-slate-400 truncate pt-0.5">
+                    with <span className="text-slate-200 font-semibold">{card.creatorName}</span>
+                  </div>
+                )}
                 <div className="flex items-center gap-1.5 text-xs text-slate-300 font-medium pt-1">
                   <Users className="h-3.5 w-3.5 text-pink-400" />
                   <span>{card.viewers.toLocaleString()} watching</span>
