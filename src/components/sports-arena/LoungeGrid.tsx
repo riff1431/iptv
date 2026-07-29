@@ -3,7 +3,6 @@ import { supabase } from "@/integrations/supabase/client";
 import type { Database } from "@/integrations/supabase/types";
 import { HlsTile } from "./HlsTile";
 import { useTvsRealtime } from "@/hooks/useTvsRealtime";
-import type { TvScore } from "./TvScoreOverlay";
 
 type TvRow = Database["public"]["Tables"]["tvs"]["Row"];
 
@@ -97,7 +96,6 @@ export function LoungeGrid({ loungeId, activeSlot, onActiveSlotChange, paused = 
             active={activeSlot === tv.slot}
             onActivate={() => onActiveSlotChange(tv.slot)}
             paused={paused}
-            score={buildScoreFromTv(tv)}
             matchup={tv.matchup}
             sport={tv.sport}
           />
@@ -105,35 +103,4 @@ export function LoungeGrid({ loungeId, activeSlot, onActiveSlotChange, paused = 
       })}
     </div>
   );
-}
-
-/**
- * Compose the live scoreboard overlay from the tv row. Returns null when the
- * admin hasn't set any score/matchup data — the tile then hides the overlay.
- */
-function buildScoreFromTv(tv: TvRow): TvScore | null {
-  const hasTeams = !!(tv.home_label || tv.away_label);
-  const hasClock = !!(tv.period_label || tv.clock_label);
-  if (!hasTeams && !hasClock) return null;
-
-  return {
-    home: tv.home_label
-      ? {
-          code: tv.home_label,
-          score: tv.home_score ?? 0,
-          color: tv.accent_home ? undefined : "bg-arena-panel-2/80",
-          bgStyle: tv.accent_home ? { background: tv.accent_home } : undefined,
-        }
-      : undefined,
-    away: tv.away_label
-      ? {
-          code: tv.away_label,
-          score: tv.away_score ?? 0,
-          color: tv.accent_away ? undefined : "bg-arena-panel-2/80",
-          bgStyle: tv.accent_away ? { background: tv.accent_away } : undefined,
-        }
-      : undefined,
-    period: tv.period_label ?? undefined,
-    clock: tv.clock_label ?? undefined,
-  };
 }

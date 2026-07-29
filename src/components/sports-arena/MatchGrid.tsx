@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Activity, ArrowDownUp, Filter, RefreshCw, Tv as TvIcon, Volume2, VolumeX, X } from "lucide-react";
+import { Activity, Filter, RefreshCw, Tv as TvIcon, Volume2, VolumeX, X } from "lucide-react";
 import { MatchSlotTile, type SlotHealth } from "./MatchSlotTile";
 import type { PublicMatch, PublicMatchSlot } from "@/lib/matches.public.functions";
 import type { IptvChannel } from "@/lib/m3u-parser";
@@ -101,34 +101,30 @@ export function MatchGrid({
   const handleHealthChange = useCallback((slot: number, health: SlotHealth) => {
     setSlotHealth((prev) => (prev[slot] === health ? prev : { ...prev, [slot]: health }));
   }, []);
+  const slotSignature = useMemo(
+    () =>
+      layout.tiles
+        .map((slot) => `${slot.slot}:${slot.channelId ?? ""}:${slot.enabled ? "1" : "0"}`)
+        .join("|"),
+    [layout.tiles],
+  );
+  useEffect(() => {
+    // A newly assigned channel must not inherit the previous channel's health.
+    setSlotHealth({});
+  }, [slotSignature]);
 
   // Slide-out details drawer — opens when a tile is tapped so viewers can
   // inspect health/audio state without leaving the grid.
   const [detailsSlot, setDetailsSlot] = useState<number | null>(null);
   const closeDetails = useCallback(() => setDetailsSlot(null), []);
 
-  // Sort mode for the tile grid. "slot" preserves the admin-configured order;
-  // "health" surfaces healthy streams first so viewers land on a working tile.
-  // Persisted to localStorage so the choice survives reloads and sessions.
-  // NB: default to "slot" on the server render, then hydrate the saved value
-  // in an effect — avoids an SSR/CSR mismatch (see tanstack-execution-model).
-  type SortMode = "slot" | "health";
-  const SORT_STORAGE_KEY = "arena:match-grid:sort-mode";
-  const [sortMode, setSortMode] = useState<SortMode>("slot");
+  // Admin slot order is authoritative. Remove the retired viewer-side sort
+  // preference so an older "healthy first" choice cannot reorder this grid.
   useEffect(() => {
     try {
-      const saved = window.localStorage.getItem(SORT_STORAGE_KEY);
-      if (saved === "slot" || saved === "health") setSortMode(saved);
+      window.localStorage.removeItem("arena:match-grid:sort-mode");
     } catch {
-      // localStorage unavailable (private mode, disabled) — keep default.
-    }
-  }, []);
-  const updateSortMode = useCallback((next: SortMode) => {
-    setSortMode(next);
-    try {
-      window.localStorage.setItem(SORT_STORAGE_KEY, next);
-    } catch {
-      // Persistence is best-effort; UI still works if it fails.
+      // Storage is best-effort.
     }
   }, []);
 
@@ -200,15 +196,6 @@ export function MatchGrid({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const HEALTH_SORT_WEIGHT: Record<SlotHealth, number> = {
-    healthy: 0,
-    unknown: 1,
-    degraded: 2,
-    unavailable: 3,
-  };
-
-
-
   const enabledSlotNumbers = useMemo(
     () => layout.tiles.filter((s) => s.enabled && s.channelId).map((s) => s.slot),
     [layout.tiles],
@@ -265,21 +252,6 @@ export function MatchGrid({
   };
   const overall = overallMeta[overallHealth];
 
-  const sortedResolved = useMemo(() => {
-    if (sortMode === "slot") return resolved;
-    // Stable sort by health weight, then by original slot number so the order
-    // is deterministic within a health bucket.
-    return [...resolved]
-      .map((r, idx) => ({ r, idx }))
-      .sort((a, b) => {
-        const ha = slotHealth[a.r.slot.slot] ?? "unknown";
-        const hb = slotHealth[b.r.slot.slot] ?? "unknown";
-        const d = HEALTH_SORT_WEIGHT[ha] - HEALTH_SORT_WEIGHT[hb];
-        return d !== 0 ? d : a.idx - b.idx;
-      })
-      .map(({ r }) => r);
-  }, [resolved, sortMode, slotHealth]);
-
   // Channel options for the filter <select>, derived from configured tiles.
   // Value is the configured channelId; label prefers the display name.
   const channelOptions = useMemo(() => {
@@ -294,20 +266,20 @@ export function MatchGrid({
     );
   }, [resolved]);
 
-  // Apply active filters after sorting so slot/health ordering is preserved.
+  // Filtering never changes the remaining tiles' admin-defined slot order.
   const displayedResolved = useMemo(() => {
-    return sortedResolved.filter(({ slot }) => {
+    return resolved.filter(({ slot }) => {
       if (!slot.enabled || !slot.channelId) return true; // keep placeholder tiles
       const h = slotHealth[slot.slot] ?? "unknown";
       if (!statusFilter.has(h)) return false;
       if (channelFilter !== "all" && slot.channelId !== channelFilter) return false;
       return true;
     });
-  }, [sortedResolved, slotHealth, statusFilter, channelFilter]);
+  }, [resolved, slotHealth, statusFilter, channelFilter]);
 
   const filtersActive =
     statusFilter.size !== ALL_STATUSES.length || channelFilter !== "all";
-  const hiddenCount = sortedResolved.length - displayedResolved.length;
+  const hiddenCount = resolved.length - displayedResolved.length;
 
   const STATUS_META: Record<
     SlotHealth,
@@ -406,43 +378,6 @@ export function MatchGrid({
               {healthCounts.unknown} warming
             </span>
           )}
-        </div>
-      </div>
-
-      {/* Sort control — reorder tiles so healthy streams appear first without
-          changing the underlying slot numbers or admin configuration. */}
-      <div className="mb-2 flex flex-wrap items-center justify-between gap-2 text-[11px] sm:justify-end">
-        <span className="text-muted-foreground">Sort tiles</span>
-
-        <div
-          role="group"
-          aria-label="Sort tiles"
-          className="inline-flex overflow-hidden rounded-md border border-arena-border"
-        >
-          <button
-            type="button"
-            onClick={() => updateSortMode("slot")}
-            aria-pressed={sortMode === "slot"}
-            className={`px-2.5 py-1 font-semibold uppercase tracking-wider transition ${
-              sortMode === "slot"
-                ? "bg-arena-violet text-white"
-                : "bg-transparent text-white/70 hover:bg-white/5"
-            }`}
-          >
-            Slot order
-          </button>
-          <button
-            type="button"
-            onClick={() => updateSortMode("health")}
-            aria-pressed={sortMode === "health"}
-            className={`inline-flex items-center gap-1 px-2.5 py-1 font-semibold uppercase tracking-wider transition ${
-              sortMode === "health"
-                ? "bg-arena-violet text-white"
-                : "bg-transparent text-white/70 hover:bg-white/5"
-            }`}
-          >
-            <ArrowDownUp className="h-3 w-3" /> Healthy first
-          </button>
         </div>
       </div>
 
@@ -551,7 +486,10 @@ export function MatchGrid({
             !!normalizedResolved &&
             normalizedConfigured === normalizedResolved;
           return (
-            <div key={slot.slot} className="flex flex-col gap-1.5">
+            <div
+              key={`${slot.slot}:${slot.channelId ?? "empty"}:${slot.enabled ? "on" : "off"}`}
+              className="flex flex-col gap-1.5"
+            >
               <MatchSlotTile
                 slot={slot.slot}
                 channelName={slot.channelName ?? channel?.name ?? null}

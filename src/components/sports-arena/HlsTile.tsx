@@ -3,7 +3,6 @@ import Hls from "hls.js";
 import { Maximize2, Volume2, VolumeX, RotateCcw, WifiOff } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { SportImage } from "@/components/SportImage";
-import { TvScoreOverlay, type TvScore } from "./TvScoreOverlay";
 
 export type HlsTileProps = {
   tvId: string;
@@ -15,8 +14,6 @@ export type HlsTileProps = {
   onActivate: () => void;
   /** Pause the underlying stream (e.g. during an ad break overlay). */
   paused?: boolean;
-  /** Live scoreboard for this TV, built from the `tvs` row by the parent. */
-  score?: TvScore | null;
   /** Optional admin-set matchup label ("Lakers vs Celtics"). */
   matchup?: string | null;
   /** Optional admin-set sport label ("NBA"). */
@@ -38,7 +35,6 @@ export function HlsTile({
   active,
   onActivate,
   paused = false,
-  score = null,
   matchup = null,
   sport = null,
 }: HlsTileProps) {
@@ -291,9 +287,6 @@ export function HlsTile({
           {offline ? "OFF" : "LIVE"}
         </span>
       </div>
-
-      {/* Scoreboard overlay */}
-      {!loading && !error && !offline && score && <TvScoreOverlay score={score} />}
 
       {/* Hover controls */}
       <div className="pointer-events-none absolute bottom-3 right-3 flex gap-1.5 opacity-0 transition group-hover:opacity-100">

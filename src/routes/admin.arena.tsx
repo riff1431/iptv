@@ -596,13 +596,7 @@ function MatchRowCard({
             <span className="mr-2 uppercase tracking-wider">{match.sport}</span>
           ) : null}
           {match.home_label && match.away_label ? (
-            <span>
-              {match.home_label}{" "}
-              <span className="tabular-nums font-semibold">{match.home_score}</span>
-              {" — "}
-              <span className="tabular-nums font-semibold">{match.away_score}</span>{" "}
-              {match.away_label}
-            </span>
+            <span>{match.home_label} vs {match.away_label}</span>
           ) : (
             <span>No teams set</span>
           )}
@@ -645,7 +639,7 @@ function MatchTable({
             <TableHead className="w-[60px]">Status</TableHead>
             <TableHead>Match</TableHead>
             <TableHead>Sport</TableHead>
-            <TableHead className="text-right">Score</TableHead>
+            <TableHead className="text-right">Score source</TableHead>
             <TableHead>Slots</TableHead>
             <TableHead>Active</TableHead>
             <TableHead className="text-right">Actions</TableHead>
@@ -772,7 +766,7 @@ function fromRow(row: MatchRow): FormState {
 
 const STEP_LABEL: Record<WizardStep, string> = {
   basics: "Basics",
-  score: "Score & Status",
+  score: "Status",
   media: "Media",
   slots: "Channel slots",
 };
@@ -1039,7 +1033,6 @@ function MatchEditorDialog({
                 key={s}
                 value={s}
                 className="text-xs"
-                disabled={s === "slots" && !savedId}
               >
                 <span className="mr-1 hidden sm:inline">{i + 1}.</span>
                 {STEP_LABEL[s]}
@@ -1172,36 +1165,6 @@ function MatchEditorDialog({
                   </SelectContent>
                 </Select>
               </Field>
-              <Field label="Period label">
-                <Input
-                  value={form.period_label}
-                  onChange={(e) => setForm({ ...form, period_label: e.target.value })}
-                  placeholder="Q3, 2nd Half…"
-                />
-              </Field>
-              <Field label="Home score">
-                <Input
-                  type="number"
-                  min={0}
-                  value={form.home_score}
-                  onChange={(e) => setForm({ ...form, home_score: Number(e.target.value) })}
-                />
-              </Field>
-              <Field label="Away score">
-                <Input
-                  type="number"
-                  min={0}
-                  value={form.away_score}
-                  onChange={(e) => setForm({ ...form, away_score: Number(e.target.value) })}
-                />
-              </Field>
-              <Field label="Clock label" className="sm:col-span-2">
-                <Input
-                  value={form.clock_label}
-                  onChange={(e) => setForm({ ...form, clock_label: e.target.value })}
-                  placeholder="8:42"
-                />
-              </Field>
             </div>
           </TabsContent>
 
@@ -1214,8 +1177,22 @@ function MatchEditorDialog({
 
           <TabsContent value="slots" className="mt-4 space-y-3">
             {!savedId ? (
-              <div className="rounded-lg border border-arena-border bg-arena-panel-2/40 p-4 text-sm text-muted-foreground">
-                Save the match first to assign channels.
+              <div className="rounded-lg border border-arena-border bg-arena-panel-2/40 p-4">
+                <div className="text-sm font-semibold text-white">Create this match first</div>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  Channel slots need a saved match ID. Your current form will be saved, then the
+                  slot controls will appear here.
+                </p>
+                <Button
+                  type="button"
+                  size="sm"
+                  className="mt-3"
+                  onClick={() => save.mutate(undefined)}
+                  disabled={save.isPending || !canSave}
+                >
+                  {save.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+                  Create match and continue
+                </Button>
               </div>
             ) : (
               <>

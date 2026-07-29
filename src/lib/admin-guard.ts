@@ -3,6 +3,63 @@ import { createMiddleware } from "@tanstack/react-start";
 import { supabase } from "@/integrations/supabase/client";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 import { logAdminAccess } from "@/lib/admin-audit.functions";
+import { retryTransient } from "@/lib/transient-retry";
+
+const ADMIN_GUARD_ATTEMPTS = 3;
+
+function errorMessage(error: unknown): string {
+  if (error instanceof Error) return error.message;
+  if (error && typeof error === "object" && "message" in error) {
+    return String((error as { message?: unknown }).message ?? "");
+  }
+  return String(error ?? "");
+}
+
+/**
+ * Only transport failures are retried. Permission and credential failures
+ * remain final so retrying can never weaken the admin authorization check.
+ */
+export function isTransientAdminGuardError(error: unknown): boolean {
+  const message = errorMessage(error).toLowerCase();
+  const code =
+    error && typeof error === "object" && "code" in error
+      ? String((error as { code?: unknown }).code ?? "").toUpperCase()
+      : "";
+
+  return (
+    error instanceof TypeError ||
+    /failed to fetch|network|timeout|timed out|abort|temporar|connection|lock/.test(message) ||
+    /^(PGRST000|PGRST001|PGRST002|502|503|504)$/.test(code)
+  );
+}
+
+async function readSessionForAdminGuard() {
+  return retryTransient(
+    async () => {
+      const result = await supabase.auth.getSession();
+      if (result.error) {
+        if (isTransientAdminGuardError(result.error)) throw result.error;
+        return null;
+      }
+      return result.data.session ?? null;
+    },
+    { attempts: ADMIN_GUARD_ATTEMPTS, shouldRetry: isTransientAdminGuardError },
+  );
+}
+
+async function checkAdminRole(userId: string) {
+  return retryTransient(
+    async () => {
+      const result = await supabase.rpc("has_role", {
+        _user_id: userId,
+        _role: "admin",
+      });
+      if (result.error && isTransientAdminGuardError(result.error)) throw result.error;
+      return result;
+    },
+    { attempts: ADMIN_GUARD_ATTEMPTS, shouldRetry: isTransientAdminGuardError },
+  );
+}
 
 /**
  * Client-side route guard for admin-only routes.
@@ -15,18 +72,13 @@ export async function requireAdminRoute({
 }: {
   location: { href: string; pathname: string };
 }) {
-  const { data: sessionData } = await supabase.auth.getSession();
-  const user = sessionData.session?.user ?? null;
+  const session = await readSessionForAdminGuard();
+  const user = session?.user ?? null;
   if (!user) {
-    // Not signed in — no session to audit against; just redirect.
     throw redirect({ to: "/auth", search: { redirect: location.href } });
   }
-  const { data, error } = await supabase.rpc("has_role", {
-    _user_id: user.id,
-    _role: "admin",
-  });
+  const { data, error } = await checkAdminRole(user.id);
   if (error || !data) {
-    // Fire-and-forget so navigation isn't blocked by the audit write.
     void logAdminAccess({
       data: {
         action: "admin_denied",
@@ -41,7 +93,6 @@ export async function requireAdminRoute({
   }).catch((err) => console.warn("audit log (access) failed", err));
   return { userId: user.id };
 }
-
 
 /**
  * Server-function middleware enforcing admin role.

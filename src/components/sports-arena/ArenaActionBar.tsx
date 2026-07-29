@@ -369,25 +369,10 @@ export function ArenaActionBar({
                   <span className="text-[11px] font-bold uppercase tracking-wider text-arena-violet">
                     TV {tv.slot} · {tv.sport || "Live"}
                   </span>
-                  {tv.period_label && (
-                    <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-                      {tv.period_label}
-                      {tv.clock_label ? ` · ${tv.clock_label}` : ""}
-                    </span>
-                  )}
                 </div>
                 <div className="mt-1 text-sm font-semibold text-white">
                   {tv.matchup || tv.display_name || "Untitled matchup"}
                 </div>
-                {(tv.home_label || tv.away_label) && (
-                  <div className="mt-1 flex items-center justify-between text-xs text-white/80">
-                    <span>{tv.home_label ?? "Home"}</span>
-                    <span className="font-mono font-bold text-white">
-                      {tv.home_score} – {tv.away_score}
-                    </span>
-                    <span>{tv.away_label ?? "Away"}</span>
-                  </div>
-                )}
               </div>
             ))}
             {tvs.length === 0 &&

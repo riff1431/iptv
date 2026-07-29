@@ -390,7 +390,6 @@ function MatchCard({ match }: { match: PublicMatch }) {
             : "Soon";
 
   const enabledSlots = match.slots.filter((s) => s.enabled && s.channelId);
-  const scoreFp = `${match.homeScore}-${match.awayScore}-${match.status}`;
 
   return (
     <Link
@@ -440,7 +439,6 @@ function MatchCard({ match }: { match: PublicMatch }) {
 
         {hasVs ? (
           <div
-            key={scoreFp}
             className="absolute bottom-2 left-2 right-2 flex animate-fade-in items-center justify-between gap-2 text-white motion-reduce:animate-none sm:bottom-3 sm:left-3 sm:right-3"
           >
             <div className="flex items-center gap-1.5 min-w-0">
@@ -453,17 +451,11 @@ function MatchCard({ match }: { match: PublicMatch }) {
               <span className="truncate text-xs font-bold uppercase tracking-wider">
                 {match.homeLabel}
               </span>
-              <span className="ml-1 tabular-nums text-sm font-bold transition-colors duration-300">
-                {match.homeScore}
-              </span>
             </div>
             <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
-              {match.periodLabel || match.clockLabel || "vs"}
+              vs
             </span>
             <div className="flex items-center gap-1.5 min-w-0 justify-end">
-              <span className="tabular-nums text-sm font-bold transition-colors duration-300">
-                {match.awayScore}
-              </span>
               <span className="truncate text-xs font-bold uppercase tracking-wider">
                 {match.awayLabel}
               </span>

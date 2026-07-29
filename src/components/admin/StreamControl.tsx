@@ -2,20 +2,26 @@
 // Reads realtime updates from `tv_stream_sessions` so the badge flips
 // instantly for every admin viewing this page.
 
-import { useEffect, useRef, useState } from "react";
+import { lazy, Suspense, useEffect, useRef, useState } from "react";
 import { useServerFn } from "@tanstack/react-start";
 import { Play, Square, Activity, Loader2, Users, RefreshCw, MonitorPlay } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { supabase } from "@/integrations/supabase/client";
 import { useLoungePresence } from "@/hooks/useLoungePresence";
-import { AdminTvPreviewDialog } from "@/components/admin/AdminTvPreviewDialog";
+
 import {
   startLoungeStream,
   stopLoungeStream,
   switchChannel,
   getStreamHealth,
 } from "@/lib/stream-admin.functions";
+
+const LazyAdminTvPreviewDialog = lazy(() =>
+  import("@/components/admin/AdminTvPreviewDialog").then((module) => ({
+    default: module.AdminTvPreviewDialog,
+  })),
+);
 
 type SessionRow = {
   status: "starting" | "live" | "stopped" | "error";
@@ -132,9 +138,7 @@ export function StreamControl({
         action: {
           label: "Sign in",
           onClick: () => {
-            window.location.href = `/auth?redirect=${encodeURIComponent(
-              window.location.pathname,
-            )}`;
+            window.location.href = `/auth?redirect=${encodeURIComponent(window.location.pathname)}`;
           },
         },
       });
@@ -217,7 +221,6 @@ export function StreamControl({
     session.status !== "stopped" &&
     session.channel_id !== currentChannelId;
 
-
   async function onStop() {
     if (inFlightRef.current) return;
     inFlightRef.current = true;
@@ -232,8 +235,6 @@ export function StreamControl({
       inFlightRef.current = false;
     }
   }
-
-
 
   return (
     <div className="mt-2 rounded-lg border border-arena-border bg-arena-panel-2/40 p-3">
@@ -259,8 +260,7 @@ export function StreamControl({
 
       <div className="grid gap-1 text-xs text-muted-foreground">
         <div>
-          Channel:{" "}
-          <span className="text-white/80">{session?.channel_id ?? "—"}</span>
+          Channel: <span className="text-white/80">{session?.channel_id ?? "—"}</span>
         </div>
         <div>
           Last upstream poll:{" "}
@@ -269,9 +269,7 @@ export function StreamControl({
               ? new Date(session.last_playlist_fetch_at).toLocaleTimeString()
               : "—"}
           </span>
-          {lastLatency != null && (
-            <span className="ml-2 text-white/60">({lastLatency} ms)</span>
-          )}
+          {lastLatency != null && <span className="ml-2 text-white/60">({lastLatency} ms)</span>}
         </div>
         {session?.last_error && (
           <div className="text-destructive">Last error: {session.last_error}</div>
@@ -332,27 +330,28 @@ export function StreamControl({
             ) : (
               <RefreshCw className="mr-1 h-3.5 w-3.5" />
             )}
-            {busy === "switch"
-              ? "Working…"
-              : `Switch to ${currentChannelName ?? currentChannelId}`}
+            {busy === "switch" ? "Working…" : `Switch to ${currentChannelName ?? currentChannelId}`}
           </Button>
         )}
       </div>
 
-
       <p className="mt-2 text-[10px] leading-relaxed text-muted-foreground">
-        Every viewer in this lounge shares one upstream IPTV session. The
-        provider sees a single connection regardless of viewer count.
+        Every viewer in this lounge shares one upstream IPTV session. The provider sees a single
+        connection regardless of viewer count.
       </p>
 
-      <AdminTvPreviewDialog
-        open={previewOpen}
-        onOpenChange={setPreviewOpen}
-        tvId={tvId}
-        slot={slot}
-        displayName={displayName}
-        channelName={currentChannelName ?? null}
-      />
+      <Suspense fallback={null}>
+        {previewOpen ? (
+          <LazyAdminTvPreviewDialog
+            open={previewOpen}
+            onOpenChange={setPreviewOpen}
+            tvId={tvId}
+            slot={slot}
+            displayName={displayName}
+            channelName={currentChannelName ?? null}
+          />
+        ) : null}
+      </Suspense>
     </div>
   );
 }

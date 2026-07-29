@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useServerFn } from "@tanstack/react-start";
 import { Loader2, Play, Radio, RotateCcw, Search, Tv2 } from "lucide-react";
 import {
@@ -37,13 +37,14 @@ export function GlobalIptvChannelPicker({
 }) {
   const catalog = useIptvPlaylist(open ? "global:xtream" : "");
   const resolvePlayback = useServerFn(getPublicIptvChannelPlayback);
-  const channels = catalog.data ?? [];
+  const channels = useMemo(() => catalog.data ?? [], [catalog.data]);
   const [query, setQuery] = useState("");
   const [group, setGroup] = useState("");
   const [selected, setSelected] = useState<IptvChannel | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [previewError, setPreviewError] = useState<string | null>(null);
   const [previewLoading, setPreviewLoading] = useState(false);
+  const [previewReady, setPreviewReady] = useState(false);
 
   useEffect(() => {
     if (!open || selected || channels.length === 0) return;
@@ -61,6 +62,7 @@ export function GlobalIptvChannelPicker({
       setPreviewUrl(null);
       setPreviewError(null);
       setPreviewLoading(false);
+      setPreviewReady(false);
       return;
     }
 
@@ -74,6 +76,7 @@ export function GlobalIptvChannelPicker({
       setPreviewUrl(selected.url);
       setPreviewError(null);
       setPreviewLoading(false);
+      setPreviewReady(false);
       return;
     }
 
@@ -81,6 +84,7 @@ export function GlobalIptvChannelPicker({
     setPreviewUrl(null);
     setPreviewError(null);
     setPreviewLoading(true);
+    setPreviewReady(false);
     resolvePlayback({ data: { channelId: selected.id } })
       .then(({ url }) => {
         if (!cancelled) setPreviewUrl(url);
@@ -125,8 +129,10 @@ export function GlobalIptvChannelPicker({
       .slice(0, 500);
   }, [channels, group, query]);
 
+  const handlePreviewReady = useCallback(() => setPreviewReady(true), []);
+
   function confirmSelection() {
-    if (!selected) return;
+    if (!selected || !previewReady) return;
     onPick({
       id: selected.id,
       name: selected.name,
@@ -220,7 +226,7 @@ export function GlobalIptvChannelPicker({
                   {previewError}
                 </div>
               ) : (
-                <HlsPlayer src={previewUrl} />
+                <HlsPlayer src={previewUrl} onReady={handlePreviewReady} />
               )
             ) : (
               <div className="flex aspect-video flex-col items-center justify-center gap-2 bg-black text-xs text-muted-foreground">
@@ -241,8 +247,12 @@ export function GlobalIptvChannelPicker({
                       </div>
                     </div>
                   </div>
-                  <Button className="mt-auto" onClick={confirmSelection}>
-                    Use this channel
+                  <Button
+                    className="mt-auto"
+                    onClick={confirmSelection}
+                    disabled={!previewReady || previewLoading || !!previewError}
+                  >
+                    {previewReady ? "Use this channel" : "Wait for playable preview"}
                   </Button>
                 </>
               ) : (

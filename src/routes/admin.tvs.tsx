@@ -1,5 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { useServerFn } from "@tanstack/react-start";
 import {
   Tv,
@@ -30,13 +30,13 @@ import {
   type Lounge,
   type LoungeMatchInput,
 } from "@/lib/admin-queries";
+import type { PickedChannel } from "@/components/GlobalIptvChannelPicker";
+import type { XtreamPicked } from "@/components/XtreamChannelPicker";
 import {
-  GlobalIptvChannelPicker as IptvChannelPicker,
-  type PickedChannel,
-} from "@/components/GlobalIptvChannelPicker";
-import { XtreamChannelPicker, type XtreamPicked } from "@/components/XtreamChannelPicker";
-import { StreamPreviewDialog } from "@/components/StreamPreviewDialog";
-import { AdminEmptyBlock, AdminLoadingBlock } from "@/components/admin/AdminStates";
+  AdminEmptyBlock,
+  AdminErrorBlock,
+  AdminLoadingBlock,
+} from "@/components/admin/AdminStates";
 import { StreamControl } from "@/components/admin/StreamControl";
 import { testIptvConnection } from "@/lib/iptv-admin.functions";
 import { Building2 } from "lucide-react";
@@ -48,6 +48,22 @@ export const Route = createFileRoute("/admin/tvs")({
 });
 
 const SLOTS = [1, 2, 3, 4] as const;
+
+const LazyIptvChannelPicker = lazy(() =>
+  import("@/components/GlobalIptvChannelPicker").then((module) => ({
+    default: module.GlobalIptvChannelPicker,
+  })),
+);
+const LazyXtreamChannelPicker = lazy(() =>
+  import("@/components/XtreamChannelPicker").then((module) => ({
+    default: module.XtreamChannelPicker,
+  })),
+);
+const LazyStreamPreviewDialog = lazy(() =>
+  import("@/components/StreamPreviewDialog").then((module) => ({
+    default: module.StreamPreviewDialog,
+  })),
+);
 
 const httpUrl = z
   .string()
@@ -127,21 +143,45 @@ type TvFormErrors = Partial<
 >;
 
 function AdminTvsPage() {
-  const { data: lounges = [] } = useLounges();
+  const loungesQuery = useLounges();
+  const lounges = loungesQuery.data ?? [];
   const [loungeId, setLoungeId] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!loungeId && lounges.length) setLoungeId(lounges[0].id);
+    if (!lounges.length) {
+      if (loungeId !== null) setLoungeId(null);
+      return;
+    }
+    if (!loungeId || !lounges.some((lounge) => lounge.id === loungeId)) {
+      setLoungeId(lounges[0].id);
+    }
   }, [lounges, loungeId]);
 
-  const { data: tvs = [], isLoading } = useTvsForLounge(loungeId);
+  const tvsQuery = useTvsForLounge(loungeId);
+  const tvs = tvsQuery.data ?? [];
   const activeLounge = lounges.find((l) => l.id === loungeId);
+
+  if (loungesQuery.isPending) {
+    return (
+      <div className="arena-card rounded-xl">
+        <AdminLoadingBlock label="Loading lounges..." />
+      </div>
+    );
+  }
+  if (loungesQuery.isError) {
+    return (
+      <AdminTvRetryPanel
+        message="The lounge list could not be loaded. Your session is still stored."
+        onRetry={() => void loungesQuery.refetch()}
+      />
+    );
+  }
 
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <h2 className="font-display text-xl font-bold">
-          TVs & IPTV — {activeLounge?.name ?? "Select a lounge"}
+          TVs & IPTV - {activeLounge?.name ?? "Select a lounge"}
         </h2>
         <select
           value={loungeId ?? ""}
@@ -165,10 +205,15 @@ function AdminTvsPage() {
             description="Create a lounge first, then configure its TVs here."
           />
         </div>
-      ) : isLoading ? (
+      ) : tvsQuery.isPending ? (
         <div className="arena-card rounded-xl">
-          <AdminLoadingBlock label="Loading TVs…" />
+          <AdminLoadingBlock label="Loading TVs..." />
         </div>
+      ) : tvsQuery.isError ? (
+        <AdminTvRetryPanel
+          message="TV settings could not be loaded. No saved configuration was changed."
+          onRetry={() => void tvsQuery.refetch()}
+        />
       ) : (
         <>
           {activeLounge && <LoungeMatchCard lounge={activeLounge} />}
@@ -201,6 +246,18 @@ function AdminTvsPage() {
   );
 }
 
+function AdminTvRetryPanel({ message, onRetry }: { message: string; onRetry: () => void }) {
+  return (
+    <div className="arena-card overflow-hidden rounded-xl" data-testid="admin-tvs-query-error">
+      <AdminErrorBlock message={message} />
+      <div className="flex justify-center border-t border-destructive/20 p-4">
+        <Button type="button" size="sm" onClick={onRetry}>
+          Try loading again
+        </Button>
+      </div>
+    </div>
+  );
+}
 function TvConfigCard({
   loungeId,
   slot,
@@ -865,98 +922,6 @@ function TvConfigCard({
           />
           Enabled
         </label>
-
-        {/* --- Match & Scoreboard (streams live to viewers via realtime) --- */}
-        <div className="mt-2 rounded-lg border border-arena-border bg-arena-panel-2/40 p-3">
-          <div className="mb-3 flex items-center justify-between">
-            <div className="text-xs font-bold uppercase tracking-wider text-white/80">
-              Match & Scoreboard
-            </div>
-            <div className="text-[10px] uppercase tracking-wider text-muted-foreground">
-              Live to viewers on save
-            </div>
-          </div>
-          <div className="grid gap-3">
-            <div className="grid grid-cols-2 gap-3">
-              <Field
-                label="Sport (e.g. NBA)"
-                value={form.sport}
-                onChange={(v) => setForm({ ...form, sport: v })}
-                placeholder="NBA"
-                maxLength={40}
-              />
-              <Field
-                label="Matchup"
-                value={form.matchup}
-                onChange={(v) => setForm({ ...form, matchup: v })}
-                placeholder="Lakers vs Celtics"
-                maxLength={120}
-              />
-            </div>
-            <div className="grid grid-cols-4 gap-3">
-              <Field
-                label="Home code"
-                value={form.home_label}
-                onChange={(v) => setForm({ ...form, home_label: v.toUpperCase() })}
-                placeholder="LAL"
-                maxLength={6}
-              />
-              <Field
-                label="Home score"
-                type="number"
-                value={String(form.home_score)}
-                onChange={(v) => setForm({ ...form, home_score: Number(v) || 0 })}
-                placeholder="0"
-              />
-              <Field
-                label="Away code"
-                value={form.away_label}
-                onChange={(v) => setForm({ ...form, away_label: v.toUpperCase() })}
-                placeholder="BOS"
-                maxLength={6}
-              />
-              <Field
-                label="Away score"
-                type="number"
-                value={String(form.away_score)}
-                onChange={(v) => setForm({ ...form, away_score: Number(v) || 0 })}
-                placeholder="0"
-              />
-            </div>
-            <div className="grid grid-cols-2 gap-3">
-              <Field
-                label="Period"
-                value={form.period_label}
-                onChange={(v) => setForm({ ...form, period_label: v })}
-                placeholder="4TH · ROUND 2 · 78'"
-                maxLength={24}
-              />
-              <Field
-                label="Clock"
-                value={form.clock_label}
-                onChange={(v) => setForm({ ...form, clock_label: v })}
-                placeholder="6:32"
-                maxLength={16}
-              />
-            </div>
-            <div className="grid grid-cols-2 gap-3">
-              <Field
-                label="Home accent (CSS color)"
-                value={form.accent_home}
-                onChange={(v) => setForm({ ...form, accent_home: v })}
-                placeholder="oklch(0.5 0.2 290)"
-                maxLength={40}
-              />
-              <Field
-                label="Away accent (CSS color)"
-                value={form.accent_away}
-                onChange={(v) => setForm({ ...form, accent_away: v })}
-                placeholder="#008000"
-                maxLength={40}
-              />
-            </div>
-          </div>
-        </div>
       </div>
 
       {tv?.id && (
@@ -1007,23 +972,31 @@ function TvConfigCard({
         </Button>
       </div>
 
-      <IptvChannelPicker
-        open={pickerOpen}
-        onOpenChange={setPickerOpen}
-        onPick={applyPickedChannel}
-      />
-      <XtreamChannelPicker
-        open={xtreamPickerOpen}
-        onOpenChange={setXtreamPickerOpen}
-        tvId={tv?.id ?? null}
-        onPick={applyXtreamPick}
-      />
-      <StreamPreviewDialog
-        open={previewOpen}
-        onOpenChange={setPreviewOpen}
-        url={form.current_stream_url}
-        title={form.selected_channel_name || form.display_name || `TV ${slot}`}
-      />
+      <Suspense fallback={null}>
+        {pickerOpen ? (
+          <LazyIptvChannelPicker
+            open={pickerOpen}
+            onOpenChange={setPickerOpen}
+            onPick={applyPickedChannel}
+          />
+        ) : null}
+        {xtreamPickerOpen ? (
+          <LazyXtreamChannelPicker
+            open={xtreamPickerOpen}
+            onOpenChange={setXtreamPickerOpen}
+            tvId={tv?.id ?? null}
+            onPick={applyXtreamPick}
+          />
+        ) : null}
+        {previewOpen ? (
+          <LazyStreamPreviewDialog
+            open={previewOpen}
+            onOpenChange={setPreviewOpen}
+            url={form.current_stream_url}
+            title={form.selected_channel_name || form.display_name || `TV ${slot}`}
+          />
+        ) : null}
+      </Suspense>
     </div>
   );
 }
@@ -1087,6 +1060,13 @@ const MATCH_STATUSES: LoungeMatchInput["match_status"][] = [
   "halftime",
   "final",
 ];
+
+function toDateTimeLocal(value: string | null): string {
+  if (!value) return "";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+  return date.toISOString().slice(0, 16);
+}
 
 const EMPTY_MATCH: LoungeMatchInput = {
   match_title: null,
@@ -1172,9 +1152,7 @@ function LoungeMatchCard({ lounge }: { lounge: Lounge }) {
   const inputCls =
     "h-9 w-full rounded-md border border-arena-border bg-arena-panel-2/60 px-2 text-sm text-white placeholder:text-muted-foreground focus:border-arena-violet focus:outline-none";
 
-  const dtLocal = form.match_starts_at
-    ? new Date(form.match_starts_at).toISOString().slice(0, 16)
-    : "";
+  const dtLocal = toDateTimeLocal(form.match_starts_at);
 
   return (
     <div className="arena-card mb-4 rounded-xl border border-arena-border bg-arena-panel/80 p-4">
@@ -1266,15 +1244,6 @@ function LoungeMatchCard({ lounge }: { lounge: Lounge }) {
           />
         </label>
         <label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-          Home score
-          <input
-            type="number"
-            className={`${inputCls} mt-1`}
-            value={form.match_home_score}
-            onChange={(e) => set("match_home_score", Number(e.target.value) || 0)}
-          />
-        </label>
-        <label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
           Home accent
           <input
             className={`${inputCls} mt-1`}
@@ -1296,42 +1265,12 @@ function LoungeMatchCard({ lounge }: { lounge: Lounge }) {
           />
         </label>
         <label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-          Away score
-          <input
-            type="number"
-            className={`${inputCls} mt-1`}
-            value={form.match_away_score}
-            onChange={(e) => set("match_away_score", Number(e.target.value) || 0)}
-          />
-        </label>
-        <label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
           Away accent
           <input
             className={`${inputCls} mt-1`}
             value={form.match_accent_away ?? ""}
             onChange={(e) => set("match_accent_away", e.target.value)}
             placeholder="#007A33"
-            maxLength={20}
-          />
-        </label>
-
-        <label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-          Period
-          <input
-            className={`${inputCls} mt-1`}
-            value={form.match_period_label ?? ""}
-            onChange={(e) => set("match_period_label", e.target.value)}
-            placeholder="Q3"
-            maxLength={20}
-          />
-        </label>
-        <label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-          Clock
-          <input
-            className={`${inputCls} mt-1`}
-            value={form.match_clock_label ?? ""}
-            onChange={(e) => set("match_clock_label", e.target.value)}
-            placeholder="4:12"
             maxLength={20}
           />
         </label>

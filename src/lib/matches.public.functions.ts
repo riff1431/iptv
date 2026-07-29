@@ -148,5 +148,8 @@ export const publicMatchesQuery = () =>
   queryOptions({
     queryKey: ["publicMatches"],
     queryFn: () => listPublicMatches(),
-    staleTime: 30_000,
+    staleTime: 10_000,
+    // Realtime is primary; polling recovers if a browser misses a database event.
+    refetchInterval: 10_000,
+    refetchOnWindowFocus: true,
   });

@@ -564,8 +564,6 @@ function SectionHeader({
 
 function MatchCard({ m }: { m: PublicMatch }) {
   const live = isLive(m);
-  const [home, away] = [m.homeLabel, m.awayLabel];
-  const hasScores = live && (m.homeScore !== 0 || m.awayScore !== 0);
   const visibleSlots = m.slots.filter((s) => s.channelLogo || s.channelName).slice(0, 4);
 
   return (
@@ -612,9 +610,7 @@ function MatchCard({ m }: { m: PublicMatch }) {
 
         {/* Bottom time / clock */}
         <div className="absolute bottom-2 left-2 text-[10px] font-bold text-slate-200">
-          {live
-            ? [m.periodLabel, m.clockLabel].filter(Boolean).join(" · ") || "In Progress"
-            : `${dayLabel(m.startsAt)} · ${timeLabel(m.startsAt)}`}
+          {live ? "In Progress" : `${dayLabel(m.startsAt)} at ${timeLabel(m.startsAt)}`}
         </div>
       </div>
 
@@ -624,16 +620,6 @@ function MatchCard({ m }: { m: PublicMatch }) {
           {matchTitle(m)}
         </div>
 
-        {/* Live score line */}
-        {hasScores && (home || away) && (
-          <div className="flex items-center justify-center gap-3 rounded-lg bg-slate-950/60 py-1 text-sm font-black text-white">
-            <span className="truncate max-w-[40%]">{home ?? "Home"}</span>
-            <span className="text-pink-400 tabular-nums">{m.homeScore}</span>
-            <span className="text-slate-600">:</span>
-            <span className="text-pink-400 tabular-nums">{m.awayScore}</span>
-            <span className="truncate max-w-[40%]">{away ?? "Away"}</span>
-          </div>
-        )}
 
         {/* Channel slot logos (admin-uploaded) */}
         {visibleSlots.length > 0 && (

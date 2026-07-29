@@ -1,13 +1,51 @@
-import { createFileRoute, Link, Outlet, useRouterState } from "@tanstack/react-router";
+import { createFileRoute, Link, Outlet, useRouter, useRouterState } from "@tanstack/react-router";
 import { AppShell } from "@/components/AppShell";
-import { Tv, Building2, Film, Settings, BarChart3, Users, Activity, ScrollText, CreditCard, AlertTriangle, ShieldAlert, ShieldOff, Trophy, Radio, Wallet, History, Coins, Flame } from "lucide-react";
+import {
+  Tv,
+  Building2,
+  Film,
+  Settings,
+  BarChart3,
+  Users,
+  Activity,
+  ScrollText,
+  CreditCard,
+  AlertTriangle,
+  ShieldAlert,
+  ShieldOff,
+  Trophy,
+  Radio,
+  Wallet,
+  History,
+  Coins,
+  Flame,
+} from "lucide-react";
 import { cn } from "@/lib/utils";
 import { AdminDashboard } from "@/components/admin/AdminDashboard";
 import { requireAdminRoute } from "@/lib/admin-guard";
 
-
 const adminNav: Array<{
-  to: "/admin" | "/admin/arena" | "/admin/lounges" | "/admin/tvs" | "/admin/iptv-provider" | "/admin/ads" | "/admin/health" | "/admin/seg-metrics" | "/admin/users" | "/admin/audit" | "/admin/iptv-rejections" | "/admin/iptv-blocks" | "/admin/payments" | "/admin/topups" | "/admin/topup-history" | "/admin/tips" | "/admin/quick-dares" | "/admin/wallet-ledger" | "/admin/settings" | "/admin/site-settings";
+  to:
+    | "/admin"
+    | "/admin/arena"
+    | "/admin/lounges"
+    | "/admin/tvs"
+    | "/admin/iptv-provider"
+    | "/admin/ads"
+    | "/admin/health"
+    | "/admin/seg-metrics"
+    | "/admin/users"
+    | "/admin/audit"
+    | "/admin/iptv-rejections"
+    | "/admin/iptv-blocks"
+    | "/admin/payments"
+    | "/admin/topups"
+    | "/admin/topup-history"
+    | "/admin/tips"
+    | "/admin/quick-dares"
+    | "/admin/wallet-ledger"
+    | "/admin/settings"
+    | "/admin/site-settings";
   label: string;
   icon: typeof Tv;
   exact?: boolean;
@@ -34,10 +72,6 @@ const adminNav: Array<{
   { to: "/admin/settings", label: "Admin Access", icon: Settings },
 ];
 
-
-
-
-
 export const Route = createFileRoute("/admin")({
   // Guards /admin AND every /admin/* child route.
   beforeLoad: ({ location }) => requireAdminRoute({ location }),
@@ -48,14 +82,61 @@ export const Route = createFileRoute("/admin")({
     ],
   }),
   component: AdminLayout,
+  errorComponent: AdminRouteError,
 });
+
+function AdminRouteError({ error, reset }: { error: Error; reset: () => void }) {
+  const router = useRouter();
+
+  return (
+    <AppShell>
+      <main className="flex min-h-[calc(100vh-64px)] items-center justify-center bg-arena-bg px-4">
+        <section
+          className="arena-card w-full max-w-lg rounded-2xl border border-destructive/30 p-7 text-center"
+          role="alert"
+          data-testid="admin-route-error"
+        >
+          <span className="mx-auto grid h-12 w-12 place-items-center rounded-full bg-destructive/15 text-destructive">
+            <AlertTriangle className="h-6 w-6" aria-hidden="true" />
+          </span>
+          <h1 className="mt-4 font-display text-xl font-bold text-white">
+            Admin console is temporarily unavailable
+          </h1>
+          <p className="mt-2 text-sm text-muted-foreground">
+            Your session is still stored. A temporary request failed while checking admin access.
+          </p>
+          {import.meta.env.DEV && error.message ? (
+            <p className="mt-3 break-words rounded-md bg-black/20 px-3 py-2 font-mono text-xs text-destructive/90">
+              {error.message}
+            </p>
+          ) : null}
+          <div className="mt-5 flex justify-center gap-2">
+            <button
+              type="button"
+              onClick={() => {
+                void router.invalidate();
+                reset();
+              }}
+              className="rounded-md bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground transition hover:brightness-110"
+            >
+              Retry admin check
+            </button>
+            <Link
+              to="/"
+              className="rounded-md border border-arena-border px-4 py-2 text-sm font-semibold text-white transition hover:bg-arena-panel-2"
+            >
+              Back to lobby
+            </Link>
+          </div>
+        </section>
+      </main>
+    </AppShell>
+  );
+}
 
 function AdminLayout() {
   const pathname = useRouterState({ select: (s) => s.location.pathname });
   const isOverview = pathname === "/admin";
-
-
-
 
   return (
     <AppShell>
@@ -101,7 +182,9 @@ function AdminLayout() {
                     <Icon
                       className={cn(
                         "h-4 w-4",
-                        active ? "text-arena-violet" : "text-muted-foreground group-hover:text-white",
+                        active
+                          ? "text-arena-violet"
+                          : "text-muted-foreground group-hover:text-white",
                       )}
                     />
                     {item.label}

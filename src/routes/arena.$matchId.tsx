@@ -627,15 +627,8 @@ function MatchWatchInner({ match }: { match: PublicMatch }) {
               {match.homeLabel && match.awayLabel && (
                 <div className="mt-1 flex items-center gap-2 text-sm text-white/90">
                   <span className="truncate font-semibold">{match.homeLabel}</span>
-                  <span className="tabular-nums font-bold">{match.homeScore}</span>
-                  <span className="text-muted-foreground">—</span>
-                  <span className="tabular-nums font-bold">{match.awayScore}</span>
+                  <span className="text-muted-foreground">vs</span>
                   <span className="truncate font-semibold">{match.awayLabel}</span>
-                  {(match.clockLabel || match.periodLabel) && (
-                    <span className="ml-2 text-[11px] uppercase tracking-wider text-muted-foreground">
-                      {match.periodLabel || match.clockLabel}
-                    </span>
-                  )}
                 </div>
               )}
             </div>

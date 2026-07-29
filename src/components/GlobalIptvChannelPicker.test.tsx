@@ -1,3 +1,4 @@
+import { useEffect } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 
@@ -41,9 +42,12 @@ vi.mock("@/hooks/useIptvPlaylist", () => ({
 }));
 
 vi.mock("@/components/HlsPlayer", () => ({
-  HlsPlayer: ({ src }: { src: string | null }) => (
-    <div data-testid="provider-preview">{src ?? "no-preview"}</div>
-  ),
+  HlsPlayer: ({ src, onReady }: { src: string | null; onReady?: () => void }) => {
+    useEffect(() => {
+      if (src) onReady?.();
+    }, [src, onReady]);
+    return <div data-testid="provider-preview">{src ?? "no-preview"}</div>;
+  },
 }));
 
 import { GlobalIptvChannelPicker } from "./GlobalIptvChannelPicker";
@@ -78,7 +82,7 @@ describe("GlobalIptvChannelPicker", () => {
       "/api/public/iptv/channel/1536581/playlist?access=test",
     );
 
-    fireEvent.click(screen.getByRole("button", { name: /Use this channel/i }));
+    fireEvent.click(await screen.findByRole("button", { name: /Use this channel/i }));
     expect(onPick).toHaveBeenCalledWith(
       expect.objectContaining({
         id: "1536581",

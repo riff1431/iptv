@@ -215,39 +215,11 @@ function MatchDetailsPage() {
                     {data.match.title}
                   </h1>
 
-                  {/* Scoreboard */}
                   {(data.match.home_label || data.match.away_label) && (
-                    <div className="flex items-center gap-4 rounded-xl border border-arena-border/60 bg-arena-bg/50 p-4">
-                      <div className="flex-1 text-center">
-                        <div
-                          className="text-[10px] font-bold uppercase tracking-widest"
-                          style={{ color: data.match.accent_home ?? undefined }}
-                        >
-                          {data.match.home_label ?? "Home"}
-                        </div>
-                        <div className="mt-1 font-display text-4xl font-extrabold text-white">
-                          {data.match.home_score}
-                        </div>
-                      </div>
-                      <div className="flex flex-col items-center gap-1 text-muted-foreground">
-                        <div className="text-[10px] font-bold uppercase tracking-widest">
-                          {data.match.period_label ?? "vs"}
-                        </div>
-                        <div className="font-mono text-sm text-white/70">
-                          {data.match.clock_label ?? "—"}
-                        </div>
-                      </div>
-                      <div className="flex-1 text-center">
-                        <div
-                          className="text-[10px] font-bold uppercase tracking-widest"
-                          style={{ color: data.match.accent_away ?? undefined }}
-                        >
-                          {data.match.away_label ?? "Away"}
-                        </div>
-                        <div className="mt-1 font-display text-4xl font-extrabold text-white">
-                          {data.match.away_score}
-                        </div>
-                      </div>
+                    <div className="flex items-center justify-center gap-3 rounded-xl border border-arena-border/60 bg-arena-bg/50 p-4 text-sm font-bold uppercase tracking-wider text-white">
+                      <span>{data.match.home_label ?? "Home"}</span>
+                      <span className="text-muted-foreground">vs</span>
+                      <span>{data.match.away_label ?? "Away"}</span>
                     </div>
                   )}
 
