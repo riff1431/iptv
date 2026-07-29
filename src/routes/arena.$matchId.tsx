@@ -1,29 +1,8 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { withAuth } from "@/components/RequireAuth";
-import { toast } from "sonner";
 import { Link, createFileRoute, notFound, useNavigate } from "@tanstack/react-router";
 import { useSuspenseQuery, useQueryClient } from "@tanstack/react-query";
-import {
-  ArrowLeft,
-  Users,
-  Wifi,
-  WifiOff,
-  RefreshCw,
-  RotateCcw,
-  AlertTriangle,
-  Settings,
-} from "lucide-react";
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-  AlertDialogTrigger,
-} from "@/components/ui/alert-dialog";
+import { ArrowLeft, AlertTriangle, Settings } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
 import { supabase } from "@/integrations/supabase/client";
 import { publicMatchesQuery, type PublicMatch } from "@/lib/matches.public.functions";
@@ -38,7 +17,6 @@ import { SportImage } from "@/components/SportImage";
 import { useAuth } from "@/hooks/useAuth";
 import { getMatchSlotPref, setMatchSlotPref } from "@/lib/match-slot-prefs.functions";
 import { getPublicIptvChannelPlaybacks } from "@/lib/iptv-provider.functions";
-import { resetMatchSlot } from "@/lib/match-slot-reset";
 import { useLoungePresence } from "@/hooks/useLoungePresence";
 import { ArenaHeader } from "@/components/sports-arena/ArenaHeader";
 import { ArenaChatPanel } from "@/components/sports-arena/ArenaChatPanel";
@@ -171,36 +149,6 @@ function MatchGridSkeleton({ slotCount }: { slotCount: number }) {
         : "grid-cols-2 lg:grid-cols-3";
   return (
     <div className="animate-fade-in" aria-busy="true" aria-label="Loading match streams">
-      {/* Health banner placeholder — mirrors the real aggregate health row. */}
-      <div className="mb-3 flex flex-col gap-2 rounded-lg border border-arena-border bg-arena-panel/60 px-3 py-2 sm:flex-row sm:items-center sm:justify-between sm:gap-3">
-        <div className="flex min-w-0 items-center gap-2">
-          <Skeleton className="h-2 w-2 rounded-full" />
-          <Skeleton className="h-3.5 w-3.5 rounded" />
-          <Skeleton className="h-3 w-28 rounded" />
-          <Skeleton className="hidden h-3 w-40 rounded sm:block" />
-        </div>
-        <div className="flex flex-wrap items-center gap-1.5">
-          <Skeleton className="h-4 w-20 rounded-md" />
-          <Skeleton className="h-4 w-20 rounded-md" />
-          <Skeleton className="h-4 w-16 rounded-md" />
-        </div>
-      </div>
-
-      {/* Filters / sort control placeholder. */}
-      <div className="mb-3 flex flex-col gap-2 rounded-lg border border-arena-border bg-arena-panel/40 px-3 py-2 sm:flex-row sm:flex-wrap sm:items-center sm:gap-3">
-        <Skeleton className="h-3 w-16 rounded" />
-        <div className="flex flex-wrap items-center gap-1.5">
-          <Skeleton className="h-5 w-20 rounded-full" />
-          <Skeleton className="h-5 w-20 rounded-full" />
-          <Skeleton className="h-5 w-24 rounded-full" />
-          <Skeleton className="h-5 w-20 rounded-full" />
-        </div>
-        <div className="flex items-center gap-1.5 sm:ml-auto">
-          <Skeleton className="h-3 w-14 rounded" />
-          <Skeleton className="h-7 w-32 rounded-md" />
-        </div>
-      </div>
-
       {/* Tile grid placeholder — matches the live grid columns/aspect. */}
       <div className={`grid gap-3 ${cols}`}>
         {Array.from({ length: count }).map((_, i) => (
@@ -227,35 +175,6 @@ function MatchGridSkeleton({ slotCount }: { slotCount: number }) {
   );
 }
 
-function playlistLabel(
-  source: "override" | "global" | "demo",
-  url: string,
-  globalUrl: string,
-  providerType: "m3u" | "xtream" | null,
-) {
-  if (source === "demo") return "iptv-org demo playlist";
-  if (source === "override") {
-    try {
-      const u = new URL(url);
-      const file = u.pathname.split("/").pop();
-      if (file) return file;
-      return u.hostname;
-    } catch {
-      return "Local override";
-    }
-  }
-  if (providerType === "xtream") return "Xtream Codes server";
-  try {
-    const u = new URL(globalUrl || url);
-    const host = u.hostname.replace(/^www\./, "");
-    const file = u.pathname.split("/").pop();
-    if (file && file.includes(".")) return file;
-    return host;
-  } catch {
-    return "M3U playlist";
-  }
-}
-
 function MatchWatchInner({ match }: { match: PublicMatch }) {
   const navigate = useNavigate();
   const {
@@ -269,7 +188,6 @@ function MatchWatchInner({ match }: { match: PublicMatch }) {
   const {
     data: channels = [],
     isLoading,
-    isFetching,
     error,
     refetch,
   } = useIptvPlaylist(ready ? playlistUrl : "");
@@ -356,17 +274,6 @@ function MatchWatchInner({ match }: { match: PublicMatch }) {
 
   const noProviderConfigured = source === "demo" && !globalUrl && !hasLocalOverride;
 
-  const providerLabel = noProviderConfigured
-    ? "No provider"
-    : source === "override"
-      ? "Local override"
-      : source === "demo"
-        ? "Demo playlist"
-        : providerType === "xtream"
-          ? "Xtream"
-          : "M3U";
-  const activePlaylistName = playlistLabel(source, playlistUrl, globalUrl, providerType);
-
   const enabledSlots = useMemo(
     () => match.slots.filter((s) => s.enabled && s.channelId),
     [match.slots],
@@ -375,7 +282,6 @@ function MatchWatchInner({ match }: { match: PublicMatch }) {
   const { user, isAdmin, loading: authLoading } = useAuth();
   const [activeSlot, setActiveSlot] = useState<number | null>(null);
   const [initialized, setInitialized] = useState(false);
-  const [resetDialogOpen, setResetDialogOpen] = useState(false);
   const [chatVisible, setChatVisible] = useState(true);
 
   useEffect(() => {
@@ -422,13 +328,8 @@ function MatchWatchInner({ match }: { match: PublicMatch }) {
     setActiveSlot(enabledSlots[0]?.slot ?? null);
   }, [initialized, enabledSlots, activeSlot]);
 
-  const skipPersistRef = useRef(false);
   useEffect(() => {
     if (!initialized) return;
-    if (skipPersistRef.current) {
-      skipPersistRef.current = false;
-      return;
-    }
     try {
       const raw = window.localStorage.getItem("arena.activeSlot") || "{}";
       const parsed = JSON.parse(raw);
@@ -448,32 +349,12 @@ function MatchWatchInner({ match }: { match: PublicMatch }) {
     }
   }, [initialized, activeSlot, match.id, user]);
 
-  const handleResetSlot = () => {
-    skipPersistRef.current = true;
-    void resetMatchSlot({
-      matchId: match.id,
-      enabledSlots,
-      isAuthenticated: !!user,
-      clearServerPref: (matchId) =>
-        setMatchSlotPref({ data: { matchId, slot: null } }).then(() => undefined),
-    }).then(({ nextSlot, serverCleared }) => {
-      setActiveSlot(nextSlot);
-      toast.success("Slot selection reset", {
-        description: serverCleared
-          ? "Your saved slot choice was cleared from the server and this device."
-          : "Your saved slot choice was cleared from this device.",
-      });
-    });
-    setResetDialogOpen(false);
-    handleRefresh();
-  };
-
   return (
     <>
       <main className="mx-auto max-w-[1600px] px-3 pt-3 sm:px-6 sm:pt-4">
         <ArenaHeader liveGames={enabledSlots.length} viewers={viewers} />
 
-        {/* Utility row: back link + refresh/reset + provider chips */}
+        {/* Utility row: back link to arena browse */}
         <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
           <Link
             to="/arena"
@@ -490,91 +371,6 @@ function MatchWatchInner({ match }: { match: PublicMatch }) {
           >
             <ArrowLeft className="h-3.5 w-3.5" /> Arena
           </Link>
-          <div className="flex flex-wrap items-center gap-2 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
-            <button
-              type="button"
-              onClick={handleRefresh}
-              disabled={isFetching}
-              title="Re-resolve channels and reload failed tiles"
-              className="inline-flex items-center gap-1.5 rounded-full border border-arena-border bg-arena-panel/70 px-2.5 py-1 text-white/90 hover:border-white/30 hover:text-white disabled:opacity-60"
-            >
-              <RefreshCw className={`h-3 w-3 ${isFetching ? "animate-spin" : ""}`} />
-              Refresh streams
-            </button>
-            <AlertDialog open={resetDialogOpen} onOpenChange={setResetDialogOpen}>
-              <AlertDialogTrigger asChild>
-                <button
-                  type="button"
-                  disabled={enabledSlots.length === 0}
-                  title="Clear the saved slot for this match and return to the first enabled slot"
-                  className="inline-flex items-center gap-1.5 rounded-full border border-arena-border bg-arena-panel/70 px-2.5 py-1 text-white/90 hover:border-white/30 hover:text-white disabled:opacity-60"
-                >
-                  <RotateCcw className="h-3 w-3" />
-                  Reset slot
-                </button>
-              </AlertDialogTrigger>
-              <AlertDialogContent className="border-arena-border bg-arena-panel text-white">
-                <AlertDialogHeader>
-                  <AlertDialogTitle>Reset saved slot?</AlertDialogTitle>
-                  <AlertDialogDescription className="text-muted-foreground">
-                    This clears your saved slot choice for this match across all devices and returns
-                    you to the first enabled slot.
-                  </AlertDialogDescription>
-                </AlertDialogHeader>
-                <AlertDialogFooter>
-                  <AlertDialogCancel
-                    type="button"
-                    className="border-arena-border bg-transparent text-white hover:bg-white/10"
-                  >
-                    Cancel
-                  </AlertDialogCancel>
-                  <AlertDialogAction
-                    type="button"
-                    onClick={handleResetSlot}
-                    className="bg-arena-violet text-white hover:bg-arena-violet/80"
-                  >
-                    Reset slot
-                  </AlertDialogAction>
-                </AlertDialogFooter>
-              </AlertDialogContent>
-            </AlertDialog>
-            <span className="inline-flex items-center gap-1">
-              <Users className="h-3 w-3" />
-              <span className="tabular-nums text-white/90">{viewers.toLocaleString()}</span>
-              watching
-            </span>
-            {source === "global" ? (
-              <span
-                title={globalUrl || playlistUrl}
-                className="inline-flex max-w-[220px] items-center gap-1 truncate rounded-full border border-emerald-500/30 bg-emerald-500/10 px-2 py-0.5 text-emerald-300"
-              >
-                <Wifi className="h-3 w-3 shrink-0" />
-                <span className="truncate">
-                  {providerType === "xtream" ? "Xtream" : "M3U"} · Provider live
-                </span>
-              </span>
-            ) : source === "override" ? (
-              <span
-                title={playlistUrl}
-                className="inline-flex max-w-[220px] items-center gap-1 truncate rounded-full border border-arena-border bg-arena-panel-2/60 px-2 py-0.5"
-              >
-                <Wifi className="h-3 w-3 shrink-0" /> Local override
-              </span>
-            ) : (
-              <span
-                title={playlistUrl}
-                className="inline-flex max-w-[220px] items-center gap-1 truncate rounded-full border border-amber-500/30 bg-amber-500/10 px-2 py-0.5 text-amber-300"
-              >
-                <WifiOff className="h-3 w-3 shrink-0" /> Demo playlist
-              </span>
-            )}
-            <span
-              title="Active playlist source"
-              className="hidden truncate rounded-full border border-arena-border bg-arena-panel/60 px-2 py-0.5 text-white/80 sm:inline-flex"
-            >
-              {activePlaylistName}
-            </span>
-          </div>
         </div>
 
         {/* Theatre card */}
@@ -720,11 +516,8 @@ function MatchWatchInner({ match }: { match: PublicMatch }) {
                         onActiveSlotChange={setActiveSlot}
                         loadingPlaylist={playbackLoading}
                         playlistError={playbackError}
-                        providerLabel={providerLabel}
-                        playlistName={activePlaylistName}
                         reloadKey={reloadKey}
                         onRetry={handleRefresh}
-                        showAdminDebug={isAdmin}
                       />
                     </div>
                   )
@@ -732,7 +525,7 @@ function MatchWatchInner({ match }: { match: PublicMatch }) {
               </MatchAccessGate>
             </div>
 
-            <div className={`min-w-0 ${chatVisible ? "" : "hidden"}`}>
+            <div className={`min-w-0 ${chatVisible ? "lg:flex lg:flex-col" : "hidden"}`}>
               <ArenaChatPanel matchId={match.id} online={viewers} visible={chatVisible} />
             </div>
           </div>

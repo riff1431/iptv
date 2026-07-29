@@ -24,8 +24,27 @@ type Props = {
 };
 
 const CONTROLS_HIDE_MS = 2500;
+const IPTV_STARTUP_BUFFER_SECONDS = 12;
+const IPTV_MIN_STARTUP_BUFFER_SECONDS = 4;
+const IPTV_STARTUP_BUFFER_DEADLINE_MS = 30_000;
 const VOLUME_STORAGE_KEY = "iptv-player-volume";
 const MUTED_STORAGE_KEY = "iptv-player-muted";
+export function getBufferedSecondsAhead(
+  media: Pick<HTMLVideoElement, "buffered" | "currentTime">,
+): number {
+  const ranges = media.buffered;
+  for (let index = 0; index < ranges.length; index++) {
+    const start = ranges.start(index);
+    const end = ranges.end(index);
+    if (media.currentTime >= start - 0.25 && media.currentTime <= end) {
+      return Math.max(0, end - Math.max(media.currentTime, start));
+    }
+    // Before autoplay begins, MSE timestamps can start far above currentTime=0.
+    // In that case the first range length is the usable startup reserve.
+    if (media.currentTime < start) return Math.max(0, end - start);
+  }
+  return 0;
+}
 
 function readStoredVolume(): number | null {
   if (typeof window === "undefined") return null;
@@ -87,6 +106,11 @@ export function IPTVPlayer({ url, poster }: Props) {
     let mpegtsPlayer: mpegts.Player | null = null;
     let recoverAttempts = 0;
     let cancelled = false;
+    let waitForStartupBuffer = false;
+    let playbackStarted = false;
+    let playPending = false;
+    let startupBufferTarget = IPTV_STARTUP_BUFFER_SECONDS;
+    const startupBufferDeadline = Date.now() + IPTV_STARTUP_BUFFER_DEADLINE_MS;
 
     const clearLoading = () => {
       setLoading(false);
@@ -99,13 +123,35 @@ export function IPTVPlayer({ url, poster }: Props) {
       clearLoading();
     };
     const startPlayback = () => {
+      if (playPending || cancelled) return;
+      if (waitForStartupBuffer && !playbackStarted) {
+        const bufferedSeconds = getBufferedSecondsAhead(video);
+        const deadlineReached = Date.now() >= startupBufferDeadline;
+        const requiredSeconds = deadlineReached
+          ? Math.min(startupBufferTarget, IPTV_MIN_STARTUP_BUFFER_SECONDS)
+          : startupBufferTarget;
+        if (bufferedSeconds < requiredSeconds) {
+          setLoading(true);
+          setLoadingStage("Building stable buffer...");
+          setLoadProgress(80 + Math.min(15, (bufferedSeconds / requiredSeconds) * 15));
+          return;
+        }
+      }
+
+      playPending = true;
       const attemptPlay = video.play();
-      if (!attemptPlay || typeof attemptPlay.then !== "function") return;
+      if (!attemptPlay || typeof attemptPlay.then !== "function") {
+        playPending = false;
+        return;
+      }
       void attemptPlay
         .then(() => {
+          playPending = false;
+          playbackStarted = true;
           if (!cancelled) setAutoplayBlocked(false);
         })
         .catch((playError: unknown) => {
+          playPending = false;
           if (cancelled) return;
           const name = (playError as { name?: string } | null)?.name;
           if (name === "NotAllowedError" && !video.muted) {
@@ -114,10 +160,18 @@ export function IPTVPlayer({ url, poster }: Props) {
             // available for an explicit user unmute.
             video.muted = true;
             setMuted(true);
+            playPending = true;
             void video
               .play()
-              .then(() => setAutoplayBlocked(false))
-              .catch(markAutoplayBlocked);
+              .then(() => {
+                playPending = false;
+                playbackStarted = true;
+                setAutoplayBlocked(false);
+              })
+              .catch(() => {
+                playPending = false;
+                markAutoplayBlocked();
+              });
           } else if (name === "NotAllowedError") {
             markAutoplayBlocked();
           }
@@ -126,11 +180,12 @@ export function IPTVPlayer({ url, poster }: Props) {
         });
     };
     const onPlaying = () => {
+      playbackStarted = true;
+      playPending = false;
       setAutoplayBlocked(false);
       clearLoading();
     };
     const onCanPlay = () => {
-      clearLoading();
       startPlayback();
     };
     let lastTime = 0;
@@ -296,6 +351,7 @@ export function IPTVPlayer({ url, poster }: Props) {
         setLoading(false);
       }
     } else if (useHls && Hls.isSupported()) {
+      waitForStartupBuffer = true;
       const hlsTargetUrl = isDirectTs
         ? `${origin}${PROXY_PLAYLIST_PATH}?url=${encodeURIComponent(url.replace(/\.ts($|\?)/i, ".m3u8"))}`
         : targetPlaybackUrl;
@@ -304,10 +360,11 @@ export function IPTVPlayer({ url, poster }: Props) {
         progressive: true,
         // IPTV-tuned live settings — generous network tolerance, relaxed polling.
         lowLatencyMode: false, // Turn off aggressive sub-second polling to eliminate HTTP 458 provider line locks
-        liveSyncDurationCount: 2, // Start closer to live while retaining a small jitter reserve
-        liveMaxLatencyDurationCount: 6,
+        liveSyncDurationCount: 4, // Keep several completed segments ahead to absorb relay jitter
+        liveMaxLatencyDurationCount: 10,
         backBufferLength: 30,
-        maxBufferLength: 30,
+        maxBufferLength: 60,
+        maxMaxBufferLength: 90,
         startFragPrefetch: true,
         // Retry each fragment up to 8 times before declaring a fatal error,
         // with exponential back-off capped at 4 s. This absorbs provider CDN hiccups.
@@ -332,7 +389,13 @@ export function IPTVPlayer({ url, poster }: Props) {
         setLoadingStage("Preparing stream…");
         setLoadProgress(55);
       });
-      hls.on(Hls.Events.LEVEL_LOADED, () => {
+      hls.on(Hls.Events.LEVEL_LOADED, (_event, data) => {
+        const totalDuration = data.details.totalduration;
+        const targetDuration = data.details.targetduration;
+        startupBufferTarget = Math.max(
+          IPTV_MIN_STARTUP_BUFFER_SECONDS,
+          Math.min(IPTV_STARTUP_BUFFER_SECONDS, totalDuration - targetDuration),
+        );
         setLoadProgress((p) => (p !== null && p < 70 ? 70 : p));
       });
       hls.on(Hls.Events.FRAG_LOADING, () => {
@@ -341,6 +404,9 @@ export function IPTVPlayer({ url, poster }: Props) {
       });
       hls.on(Hls.Events.FRAG_LOADED, () => {
         setLoadProgress((p) => (p !== null && p < 95 ? 95 : p));
+      });
+      hls.on(Hls.Events.BUFFER_APPENDED, () => {
+        startPlayback();
       });
 
       hls.loadSource(hlsTargetUrl);

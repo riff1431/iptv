@@ -10,11 +10,8 @@ import {
   AlertTriangle,
   Loader2,
   Settings2,
-  Activity,
 } from "lucide-react";
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { trackStreamEvent } from "@/lib/stream-analytics";
-
 
 export type MatchSlotTileProps = {
   slot: number;
@@ -32,21 +29,11 @@ export type MatchSlotTileProps = {
   notConfigured?: boolean;
   /** Optional link to the slot editor shown only when the slot is not configured. */
   configureTo?: { to: string; search?: Record<string, unknown> };
-  /** Active provider type label, e.g. "M3U", "Xtream", or "Demo playlist". */
-  providerType?: string | null;
-  /** Active playlist name shown to confirm the source. */
-  playlistName?: string | null;
   active: boolean;
   onActivate: () => void;
   /** Bumping this value forces the tile to re-attempt playback. */
   reloadKey?: number;
-  /** Fires whenever this tile's derived health changes. */
-  onHealthChange?: (slot: number, health: SlotHealth) => void;
 };
-
-/** Public health rollup emitted by MatchSlotTile via onHealthChange. */
-export type SlotHealth = "unknown" | "healthy" | "degraded" | "unavailable";
-
 
 /**
  * Single tile for a match's channel slot. Reuses the arena 2x2 look:
@@ -62,14 +49,10 @@ export function MatchSlotTile({
   channelMissing,
   notConfigured,
   configureTo,
-  providerType,
-  playlistName,
   active,
   onActivate,
   reloadKey = 0,
-  onHealthChange,
 }: MatchSlotTileProps) {
-
   const containerRef = useRef<HTMLDivElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
   const hlsRef = useRef<Hls | null>(null);
@@ -98,30 +81,9 @@ export function MatchSlotTile({
   const MAX_HLS_AUTO_RETRIES = 3;
   const MAX_WARMUP_AUTO_RETRIES = 4;
   const WARMUP_TIMEOUT_MS = 15_000;
-  const HEALTH_WINDOW_MS = 60_000;
   /** Exponential backoff: 2s, 4s, 8s, 16s, capped at 30s. */
   const backoffSeconds = (failures: number) =>
     Math.min(30, Math.max(2, Math.pow(2, Math.max(1, failures))));
-
-  // Rolling counters that feed the health indicator. Refs (mutated by media
-  // listeners) + a tick to re-render the derived label on a schedule.
-  const errorTimestampsRef = useRef<number[]>([]);
-  const rebufferTimestampsRef = useRef<number[]>([]);
-  const [, setHealthTick] = useState(0);
-  const bumpHealth = () => setHealthTick((n) => (n + 1) % 1_000_000);
-  const recordHealthEvent = (
-    bucket: "error" | "rebuffer",
-    ts: number = Date.now(),
-  ) => {
-    const arr = bucket === "error" ? errorTimestampsRef.current : rebufferTimestampsRef.current;
-    arr.push(ts);
-    const cutoff = ts - HEALTH_WINDOW_MS;
-    while (arr.length && arr[0] < cutoff) arr.shift();
-    bumpHealth();
-  };
-
-
-
 
   useEffect(() => {
     const video = videoRef.current;
@@ -224,9 +186,6 @@ export function MatchSlotTile({
     const onWaiting = () => {
       if (destroyed) return;
       setBuffering(true);
-      // Only count rebuffers that happen after playback actually started —
-      // pre-roll "waiting" is expected and shouldn't flag a healthy stream.
-      if (hasStartedPlaying) recordHealthEvent("rebuffer");
     };
     const onCanPlayEvt = () => advancePhase("canplay");
     const onPlaying = () => {
@@ -239,7 +198,6 @@ export function MatchSlotTile({
         // Successful playback — clear backoff so the next failure starts fresh.
         setWarmupFailures(0);
         reportSuccess();
-        bumpHealth();
       }
     };
 
@@ -247,12 +205,10 @@ export function MatchSlotTile({
     const onStalled = () => {
       if (destroyed) return;
       setBuffering(true);
-      if (hasStartedPlaying) recordHealthEvent("rebuffer");
     };
     video.addEventListener("waiting", onWaiting);
     video.addEventListener("stalled", onStalled);
     video.addEventListener("playing", onPlaying);
-
 
     let cleanupNative: (() => void) | null = null;
 
@@ -272,9 +228,6 @@ export function MatchSlotTile({
         void video.play().catch(() => {});
       });
       hls.on(Hls.Events.ERROR, (_e, data) => {
-        // Every error (fatal or not) feeds the health window so a stream
-        // that recovers but is flaky still shows as Degraded.
-        recordHealthEvent("error");
         if (!data.fatal) return;
 
         if (
@@ -414,30 +367,6 @@ export function MatchSlotTile({
     };
   }, [canAutoRetry, warmupFailures, attempt, slot, channelName, url]);
 
-  // Slide the health window forward: re-render every 5s so aged-out events
-  // stop counting even when nothing new is happening.
-  useEffect(() => {
-    if (!url) return;
-    const id = setInterval(() => {
-      const cutoff = Date.now() - HEALTH_WINDOW_MS;
-      const err = errorTimestampsRef.current;
-      const reb = rebufferTimestampsRef.current;
-      let changed = false;
-      while (err.length && err[0] < cutoff) {
-        err.shift();
-        changed = true;
-      }
-      while (reb.length && reb[0] < cutoff) {
-        reb.shift();
-        changed = true;
-      }
-      if (changed) bumpHealth();
-    }, 5000);
-    return () => clearInterval(id);
-  }, [url]);
-
-
-
   async function toggleFullscreen(e: React.MouseEvent) {
     e.stopPropagation();
     const el = containerRef.current;
@@ -452,97 +381,6 @@ export function MatchSlotTile({
   const placeholder = !url;
   const showError = !!error || !!playlistError || channelMissing;
   const showBufferingOverlay = !placeholder && !showError && !loading && buffering;
-
-  // Compact status descriptor shown as a per-tile badge so operators can
-  // immediately see where a stream is stuck without opening devtools.
-  type StatusTone = "neutral" | "info" | "warn" | "error" | "ok";
-  const status: { label: string; tone: StatusTone; dot: string } = notConfigured
-    ? { label: "Not configured", tone: "neutral", dot: "bg-white/40" }
-    : loadingPlaylist
-      ? { label: "Resolving", tone: "info", dot: "bg-sky-400 animate-pulse" }
-      : playlistError
-        ? { label: "Playlist error", tone: "error", dot: "bg-live" }
-        : channelMissing
-          ? { label: "Channel missing", tone: "warn", dot: "bg-amber-400" }
-          : placeholder
-            ? { label: "No channel", tone: "neutral", dot: "bg-white/40" }
-            : error
-              ? { label: "Error", tone: "error", dot: "bg-live" }
-              : buffering
-                ? { label: "Buffering", tone: "warn", dot: "bg-amber-400 animate-pulse" }
-                : phase === "playing"
-                  ? { label: "Playing", tone: "ok", dot: "bg-emerald-400" }
-                  : phase === "canplay"
-                    ? { label: "Ready", tone: "info", dot: "bg-sky-400 animate-pulse" }
-                    : phase === "manifest"
-                      ? { label: "Manifest parsed", tone: "info", dot: "bg-sky-400 animate-pulse" }
-                      : phase === "attaching"
-                        ? { label: "Attaching", tone: "info", dot: "bg-sky-400 animate-pulse" }
-                        : { label: "Idle", tone: "neutral", dot: "bg-white/40" };
-  const statusToneClass: Record<StatusTone, string> = {
-    neutral: "bg-black/70 text-white/80",
-    info: "bg-sky-500/25 text-sky-100 ring-1 ring-inset ring-sky-400/40",
-    warn: "bg-amber-500/25 text-amber-100 ring-1 ring-inset ring-amber-400/40",
-    error: "bg-live/25 text-white ring-1 ring-inset ring-live/50",
-    ok: "bg-emerald-500/25 text-emerald-100 ring-1 ring-inset ring-emerald-400/40",
-  };
-
-  // Health rollup — combines the current error state with the rolling
-  // 60s window of HLS errors and post-play rebuffers.
-  //   Unavailable → fatal error is currently displayed
-  //   Degraded    → playing, but errors/rebuffers crossed thresholds, OR
-  //                 warm-up has already timed out at least once this session
-  //   Healthy     → playing cleanly with no recent hiccups
-  //   Unknown     → not playing yet (attaching/manifest/ready/idle)
-  type Health = SlotHealth;
-  const recentErrors = errorTimestampsRef.current.length;
-  const recentRebuffers = rebufferTimestampsRef.current.length;
-  const health: Health = showError
-    ? "unavailable"
-    : phase !== "playing"
-      ? "unknown"
-      : recentErrors >= 3 || recentRebuffers >= 3 || warmupFailures > 0
-        ? "degraded"
-        : recentErrors > 0 || recentRebuffers > 1 || buffering
-          ? "degraded"
-          : "healthy";
-  const healthMeta: Record<
-    Health,
-    { label: string; tone: StatusTone; dot: string; hint: string }
-  > = {
-    healthy: {
-      label: "Healthy",
-      tone: "ok",
-      dot: "bg-emerald-400",
-      hint: "No errors or rebuffers in the last 60s.",
-    },
-    degraded: {
-      label: "Degraded",
-      tone: "warn",
-      dot: "bg-amber-400 animate-pulse",
-      hint: `Last 60s: ${recentErrors} error${recentErrors === 1 ? "" : "s"}, ${recentRebuffers} rebuffer${recentRebuffers === 1 ? "" : "s"}${warmupFailures > 0 ? `, ${warmupFailures} warm-up timeout${warmupFailures === 1 ? "" : "s"}` : ""}.`,
-    },
-    unavailable: {
-      label: "Unavailable",
-      tone: "error",
-      dot: "bg-live",
-      hint: "Stream is not currently playing.",
-    },
-    unknown: {
-      label: "Warming up",
-      tone: "info",
-      dot: "bg-sky-400 animate-pulse",
-      hint: "Waiting for first frame.",
-    },
-  };
-  const healthInfo = healthMeta[health];
-
-  // Report health up to the grid so it can compute the aggregate summary.
-  useEffect(() => {
-    onHealthChange?.(slot, health);
-  }, [health, slot, onHealthChange]);
-
-
 
   // User-friendly copy per progress milestone. Shown inside the loading overlay
   // so viewers see "we're getting somewhere" instead of an indefinite spinner.
@@ -568,304 +406,247 @@ export function MatchSlotTile({
   ];
   const activePhaseIndex = PHASE_ORDER.indexOf(phase);
 
-
-
   return (
-    <TooltipProvider delayDuration={200}>
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <div
-            ref={containerRef}
-            onClick={onActivate}
-            role="button"
-            tabIndex={0}
-            aria-label={`Slot ${slot}${channelName ? ` — ${channelName}` : ""}${active ? " — audio active" : ""}`}
-            aria-pressed={active}
-            aria-busy={loading || buffering || !!loadingPlaylist}
-            onKeyDown={(e) => {
-              if (e.key === "Enter" || e.key === " ") {
-                e.preventDefault();
-                onActivate();
-              }
-            }}
-            className={`group relative aspect-video cursor-pointer overflow-hidden rounded-2xl border bg-black transition focus:outline-none focus-visible:ring-2 focus-visible:ring-arena-violet ${
-              active
-                ? "border-arena-violet shadow-[0_0_40px_-8px_var(--arena-violet)]"
-                : "border-arena-border hover:border-white/25"
-            }`}
-          >
-            {channelLogo && (
-              <img
-                src={channelLogo}
-                alt=""
-                className={`pointer-events-none absolute inset-0 h-full w-full object-contain p-8 opacity-30 transition-opacity duration-300 ${
-                  !loading && !error && !placeholder ? "!opacity-0" : ""
-                }`}
-              />
-            )}
+    <div
+      ref={containerRef}
+      onClick={onActivate}
+      role="button"
+      tabIndex={0}
+      aria-label={`Slot ${slot}${channelName ? ` — ${channelName}` : ""}${active ? " — audio active" : ""}`}
+      aria-pressed={active}
+      aria-busy={loading || buffering || !!loadingPlaylist}
+      onKeyDown={(e) => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          onActivate();
+        }
+      }}
+      className={`group relative aspect-video cursor-pointer overflow-hidden rounded-2xl border bg-black transition focus:outline-none focus-visible:ring-2 focus-visible:ring-arena-violet ${
+        active
+          ? "border-arena-violet shadow-[0_0_40px_-8px_var(--arena-violet)]"
+          : "border-arena-border hover:border-white/25"
+      }`}
+    >
+      {channelLogo && (
+        <img
+          src={channelLogo}
+          alt=""
+          className={`pointer-events-none absolute inset-0 h-full w-full object-contain p-8 opacity-30 transition-opacity duration-300 ${
+            !loading && !error && !placeholder ? "!opacity-0" : ""
+          }`}
+        />
+      )}
 
-            {!placeholder && (
-              <video
-                ref={videoRef}
-                playsInline
-                muted
-                autoPlay
-                className="absolute inset-0 h-full w-full object-contain bg-black"
-              />
-            )}
+      {!placeholder && (
+        <video
+          ref={videoRef}
+          playsInline
+          muted
+          autoPlay
+          className="absolute inset-0 h-full w-full object-contain bg-black"
+        />
+      )}
 
-            {(placeholder || loading || showError) && (
-              <div className="absolute inset-0 flex items-center justify-center bg-gradient-to-b from-black/50 via-black/60 to-black/85 text-center">
-                <div className="max-w-[80%]">
-                  {placeholder && !loadingPlaylist && !playlistError ? (
-                    <>
-                      <TvIcon className="mx-auto h-6 w-6 text-muted-foreground" />
-                      <div className="mt-2 text-xs uppercase tracking-widest text-muted-foreground">
-                        {notConfigured
-                          ? `Slot ${slot} — not configured`
-                          : `Slot ${slot} — no channel`}
-                      </div>
-                      {notConfigured ? (
-                        <>
-                          <div className="mt-1 text-[11px] text-white/50">No channel assigned</div>
-                          {configureTo && (
-                            <Link
-                              {...configureTo}
-                              onClick={(e) => e.stopPropagation()}
-                              className="mt-3 inline-flex items-center gap-1.5 rounded-md bg-arena-violet px-2.5 py-1 text-[11px] font-semibold text-white hover:bg-arena-violet/80"
-                            >
-                              <Settings2 className="h-3 w-3" /> Configure streaming
-                            </Link>
-                          )}
-                        </>
-                      ) : (
-                        <div className="mt-1 text-[11px] text-white/50">
-                          {channelName ? `Waiting for “${channelName}”` : "Channel not resolved"}
-                        </div>
-                      )}
-                    </>
-                  ) : channelMissing ? (
-                    <>
-                      <AlertTriangle className="mx-auto h-6 w-6 text-amber-400" />
-                      <div className="mt-2 text-xs uppercase tracking-widest text-muted-foreground">
-                        Channel unavailable
-                      </div>
-                      <div className="mt-1 text-[11px] text-white/70">
-                        {channelName
-                          ? `“${channelName}” isn't in the current playlist`
-                          : "Not in the current playlist"}
-                      </div>
-                    </>
-                  ) : playlistError ? (
-                    <>
-                      <AlertTriangle className="mx-auto h-6 w-6 text-amber-400" />
-                      <div className="mt-2 text-xs font-semibold text-live">Playlist error</div>
-                      <div className="mt-1 text-[11px] text-white/70">{playlistError}</div>
-                    </>
-                  ) : error ? (
-                    <>
-                      <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-live/10">
-                        <AlertTriangle className="h-6 w-6 text-live" />
-                      </div>
-                      <div className="mt-3 text-xs font-semibold text-live">{error}</div>
-                      {errorDetail && (
-                        <div className="mt-1 text-[11px] text-white/60">{errorDetail}</div>
-                      )}
-                      {isWarmupError && retryCountdown !== null && retryCountdown > 0 && (
-                        <div
-                          className="mt-2 text-[11px] text-white/70"
-                          role="status"
-                          aria-live="polite"
-                        >
-                          Retrying automatically in{" "}
-                          <span className="font-bold text-white">{retryCountdown}s</span>
-                          <span className="text-white/40">
-                            {" "}
-                            (attempt {warmupFailures + 1}/{MAX_WARMUP_AUTO_RETRIES + 1})
-                          </span>
-                        </div>
-                      )}
-                      {isWarmupError && !canAutoRetry && (
-                        <div className="mt-2 text-[11px] text-white/50">
-                          Auto-retry gave up after {warmupFailures} attempts.
-                        </div>
-                      )}
-                      <div className="mt-4 flex items-center justify-center gap-2">
-                        <button
-                          type="button"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            trackStreamEvent("stream_retry_click", {
-                              slot,
-                              channelName,
-                              url,
-                              attempt: attempt + 1,
-                              errorType: error ?? undefined,
-                              errorDetails: errorDetail ?? undefined,
-                            });
-                            // Manual retry: cancel any pending backoff and treat
-                            // as a fresh attempt (reset the failure counter so
-                            // the next warm-up gets the full 2s starting delay).
-                            setRetryCountdown(null);
-                            setWarmupFailures(0);
-                            setHlsAutoRetries(0);
-                            setAttempt((n) => n + 1);
-                          }}
-                          className="inline-flex items-center gap-2 rounded-lg bg-arena-violet px-4 py-2 text-[12px] font-bold uppercase tracking-wider text-white shadow-lg shadow-arena-violet/20 hover:bg-arena-violet/80 active:scale-95"
-                        >
-                          <RotateCcw className="h-4 w-4" />
-                          {isWarmupError && retryCountdown !== null && retryCountdown > 0
-                            ? "Try now"
-                            : "Retry"}
-                        </button>
-                      </div>
-                    </>
-
-                  ) : (
-                    <div className="flex w-full flex-col items-center">
-                      {/* Shimmer skeleton block — mimics the incoming video frame */}
-                      <div className="relative mb-4 h-16 w-40 overflow-hidden rounded-lg bg-white/[0.06] ring-1 ring-inset ring-white/10">
-                        <div className="absolute inset-0 -translate-x-full animate-[shimmer_1.6s_infinite] bg-gradient-to-r from-transparent via-white/15 to-transparent" />
-                      </div>
-                      {/* Stepper — 4 dots for attaching → manifest → canplay → playing */}
-                      <div
-                        className="mb-3 flex items-center gap-1.5"
-                        role="progressbar"
-                        aria-valuemin={0}
-                        aria-valuemax={LOADING_STEPS.length}
-                        aria-valuenow={Math.max(0, activePhaseIndex)}
-                        aria-valuetext={phaseMessage.title}
-                      >
-                        {LOADING_STEPS.map((step, i) => {
-                          const stepIndex = PHASE_ORDER.indexOf(step.key);
-                          const done = stepIndex < activePhaseIndex;
-                          const current = stepIndex === activePhaseIndex;
-                          return (
-                            <div key={step.key} className="flex items-center gap-1.5">
-                              <span
-                                className={`h-1.5 w-1.5 rounded-full transition-colors ${
-                                  done
-                                    ? "bg-emerald-400"
-                                    : current
-                                      ? "bg-sky-400 animate-pulse"
-                                      : "bg-white/20"
-                                }`}
-                                aria-label={`${step.label}${current ? " (current)" : done ? " (done)" : ""}`}
-                              />
-                              {i < LOADING_STEPS.length - 1 && (
-                                <span
-                                  className={`h-px w-4 ${done ? "bg-emerald-400/60" : "bg-white/15"}`}
-                                />
-                              )}
-                            </div>
-                          );
-                        })}
-                      </div>
-                      <div
-                        className="text-xs font-semibold uppercase tracking-widest text-white/90"
-                        data-phase={phase}
-                      >
-                        {phaseMessage.title}
-                      </div>
-                      <div className="mt-1 text-[11px] text-white/60">{phaseMessage.hint}</div>
-                      {channelName && (
-                        <div className="mt-1 text-[11px] text-white/50 truncate max-w-full">
-                          {channelName}
-                        </div>
-                      )}
-                    </div>
-                  )}
+      {(placeholder || loading || showError) && (
+        <div className="absolute inset-0 flex items-center justify-center bg-gradient-to-b from-black/50 via-black/60 to-black/85 text-center">
+          <div className="max-w-[80%]">
+            {placeholder && !loadingPlaylist && !playlistError ? (
+              <>
+                <TvIcon className="mx-auto h-6 w-6 text-muted-foreground" />
+                <div className="mt-2 text-xs uppercase tracking-widest text-muted-foreground">
+                  {notConfigured ? `Slot ${slot} — not configured` : `Slot ${slot} — no channel`}
                 </div>
-              </div>
-            )}
-
-            {showBufferingOverlay && (
-              <div className="pointer-events-none absolute inset-x-0 bottom-14 flex justify-center">
-                <div className="inline-flex items-center gap-2 rounded-full bg-black/75 px-3 py-1.5 text-[11px] font-semibold text-white/90 backdrop-blur-sm">
-                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                  {errorDetail || "Rebuffering…"}
+                {notConfigured ? (
+                  <>
+                    <div className="mt-1 text-[11px] text-white/50">No channel assigned</div>
+                    {configureTo && (
+                      <Link
+                        {...configureTo}
+                        onClick={(e) => e.stopPropagation()}
+                        className="mt-3 inline-flex items-center gap-1.5 rounded-md bg-arena-violet px-2.5 py-1 text-[11px] font-semibold text-white hover:bg-arena-violet/80"
+                      >
+                        <Settings2 className="h-3 w-3" /> Configure streaming
+                      </Link>
+                    )}
+                  </>
+                ) : (
+                  <div className="mt-1 text-[11px] text-white/50">
+                    {channelName ? `Waiting for “${channelName}”` : "Channel not resolved"}
+                  </div>
+                )}
+              </>
+            ) : channelMissing ? (
+              <>
+                <AlertTriangle className="mx-auto h-6 w-6 text-amber-400" />
+                <div className="mt-2 text-xs uppercase tracking-widest text-muted-foreground">
+                  Channel unavailable
                 </div>
-              </div>
-            )}
-
-
-            <div className="pointer-events-none absolute left-2 top-2 flex max-w-[calc(100%-5.5rem)] items-center gap-1.5 sm:left-3 sm:top-3 sm:gap-2">
-              <span className="shrink-0 rounded-md bg-black/70 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wider text-white/95 sm:px-2 sm:py-1 sm:text-[10px]">
-                Slot {slot}
-              </span>
-              <span
-                data-status-phase={phase}
-                data-status-label={status.label}
-                className={`inline-flex shrink-0 items-center gap-1 rounded-md px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wider backdrop-blur-sm sm:gap-1.5 sm:px-2 sm:py-1 sm:text-[10px] ${statusToneClass[status.tone]}`}
-                aria-label={`Stream status: ${status.label}`}
-              >
-                <span className={`h-1.5 w-1.5 rounded-full ${status.dot}`} />
-                <span className="hidden sm:inline">{status.label}</span>
-              </span>
-              {channelName && (
-                <span className="hidden min-w-0 max-w-[220px] truncate rounded-md bg-black/60 px-2 py-1 text-[10px] font-semibold text-white/90 sm:inline">
-                  {channelName}
-                </span>
-              )}
-            </div>
-
-
-            <div className="pointer-events-none absolute right-2 top-2 flex items-center gap-1 sm:right-3 sm:top-3">
-              {!placeholder && (
-                <span
-                  data-stream-health={health}
-                  title={healthInfo.hint}
-                  aria-label={`Stream health: ${healthInfo.label}. ${healthInfo.hint}`}
-                  className={`inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wider backdrop-blur-sm sm:gap-1.5 sm:px-2 sm:py-1 sm:text-[10px] ${statusToneClass[healthInfo.tone]}`}
+                <div className="mt-1 text-[11px] text-white/70">
+                  {channelName
+                    ? `“${channelName}” isn't in the current playlist`
+                    : "Not in the current playlist"}
+                </div>
+              </>
+            ) : playlistError ? (
+              <>
+                <AlertTriangle className="mx-auto h-6 w-6 text-amber-400" />
+                <div className="mt-2 text-xs font-semibold text-live">Playlist error</div>
+                <div className="mt-1 text-[11px] text-white/70">{playlistError}</div>
+              </>
+            ) : error ? (
+              <>
+                <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-live/10">
+                  <AlertTriangle className="h-6 w-6 text-live" />
+                </div>
+                <div className="mt-3 text-xs font-semibold text-live">{error}</div>
+                {errorDetail && <div className="mt-1 text-[11px] text-white/60">{errorDetail}</div>}
+                {isWarmupError && retryCountdown !== null && retryCountdown > 0 && (
+                  <div className="mt-2 text-[11px] text-white/70" role="status" aria-live="polite">
+                    Retrying automatically in{" "}
+                    <span className="font-bold text-white">{retryCountdown}s</span>
+                    <span className="text-white/40">
+                      {" "}
+                      (attempt {warmupFailures + 1}/{MAX_WARMUP_AUTO_RETRIES + 1})
+                    </span>
+                  </div>
+                )}
+                {isWarmupError && !canAutoRetry && (
+                  <div className="mt-2 text-[11px] text-white/50">
+                    Auto-retry gave up after {warmupFailures} attempts.
+                  </div>
+                )}
+                <div className="mt-4 flex items-center justify-center gap-2">
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      trackStreamEvent("stream_retry_click", {
+                        slot,
+                        channelName,
+                        url,
+                        attempt: attempt + 1,
+                        errorType: error ?? undefined,
+                        errorDetails: errorDetail ?? undefined,
+                      });
+                      // Manual retry: cancel any pending backoff and treat
+                      // as a fresh attempt (reset the failure counter so
+                      // the next warm-up gets the full 2s starting delay).
+                      setRetryCountdown(null);
+                      setWarmupFailures(0);
+                      setHlsAutoRetries(0);
+                      setAttempt((n) => n + 1);
+                    }}
+                    className="inline-flex items-center gap-2 rounded-lg bg-arena-violet px-4 py-2 text-[12px] font-bold uppercase tracking-wider text-white shadow-lg shadow-arena-violet/20 hover:bg-arena-violet/80 active:scale-95"
+                  >
+                    <RotateCcw className="h-4 w-4" />
+                    {isWarmupError && retryCountdown !== null && retryCountdown > 0
+                      ? "Try now"
+                      : "Retry"}
+                  </button>
+                </div>
+              </>
+            ) : (
+              <div className="flex w-full flex-col items-center">
+                {/* Shimmer skeleton block — mimics the incoming video frame */}
+                <div className="relative mb-4 h-16 w-40 overflow-hidden rounded-lg bg-white/[0.06] ring-1 ring-inset ring-white/10">
+                  <div className="absolute inset-0 -translate-x-full animate-[shimmer_1.6s_infinite] bg-gradient-to-r from-transparent via-white/15 to-transparent" />
+                </div>
+                {/* Stepper — 4 dots for attaching → manifest → canplay → playing */}
+                <div
+                  className="mb-3 flex items-center gap-1.5"
+                  role="progressbar"
+                  aria-valuemin={0}
+                  aria-valuemax={LOADING_STEPS.length}
+                  aria-valuenow={Math.max(0, activePhaseIndex)}
+                  aria-valuetext={phaseMessage.title}
                 >
-                  <span className={`h-1.5 w-1.5 rounded-full ${healthInfo.dot}`} />
-                  <Activity className="h-3 w-3" />
-                  <span className="hidden sm:inline">{healthInfo.label}</span>
-                </span>
-              )}
-              {active ? (
-                <span className="inline-flex items-center gap-1 rounded-md bg-arena-violet/90 px-1.5 py-0.5 text-[9px] font-bold uppercase text-white sm:px-2 sm:py-1 sm:text-[10px]">
-                  <Volume2 className="h-3 w-3" />
-                  <span className="hidden sm:inline">Audio</span>
-                </span>
-              ) : (
-                <span className="inline-flex items-center gap-1 rounded-md bg-black/60 px-1.5 py-0.5 text-[9px] font-semibold text-white/80 sm:px-2 sm:py-1 sm:text-[10px]">
-                  <VolumeX className="h-3 w-3" />
-                  <span className="hidden sm:inline">Muted</span>
-                </span>
-              )}
-            </div>
-
-
-
-            {!placeholder && (
-              <button
-                type="button"
-                onClick={toggleFullscreen}
-                className="pointer-events-auto absolute bottom-3 right-3 inline-flex items-center gap-1 rounded-md bg-black/70 px-2 py-1 text-[10px] font-semibold text-white opacity-0 transition group-hover:opacity-100 focus:opacity-100"
-                aria-label="Fullscreen"
-              >
-                <Maximize2 className="h-3 w-3" /> Full
-              </button>
+                  {LOADING_STEPS.map((step, i) => {
+                    const stepIndex = PHASE_ORDER.indexOf(step.key);
+                    const done = stepIndex < activePhaseIndex;
+                    const current = stepIndex === activePhaseIndex;
+                    return (
+                      <div key={step.key} className="flex items-center gap-1.5">
+                        <span
+                          className={`h-1.5 w-1.5 rounded-full transition-colors ${
+                            done
+                              ? "bg-emerald-400"
+                              : current
+                                ? "bg-sky-400 animate-pulse"
+                                : "bg-white/20"
+                          }`}
+                          aria-label={`${step.label}${current ? " (current)" : done ? " (done)" : ""}`}
+                        />
+                        {i < LOADING_STEPS.length - 1 && (
+                          <span
+                            className={`h-px w-4 ${done ? "bg-emerald-400/60" : "bg-white/15"}`}
+                          />
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+                <div
+                  className="text-xs font-semibold uppercase tracking-widest text-white/90"
+                  data-phase={phase}
+                >
+                  {phaseMessage.title}
+                </div>
+                <div className="mt-1 text-[11px] text-white/60">{phaseMessage.hint}</div>
+                {channelName && (
+                  <div className="mt-1 text-[11px] text-white/50 truncate max-w-full">
+                    {channelName}
+                  </div>
+                )}
+              </div>
             )}
           </div>
-        </TooltipTrigger>
-        <TooltipContent
-          side="top"
-          align="start"
-          sideOffset={8}
-          className="max-w-[260px] border border-arena-border bg-black/90 text-white"
-        >
-          <div className="space-y-1 text-[11px]">
-            <div className="font-semibold text-white/90">Source</div>
-            <div className="text-white/70">
-              {providerType
-                ? `${providerType} · ${playlistName || "Unknown playlist"}`
-                : playlistName || "No provider configured"}
-            </div>
+        </div>
+      )}
+
+      {showBufferingOverlay && (
+        <div className="pointer-events-none absolute inset-x-0 bottom-14 flex justify-center">
+          <div className="inline-flex items-center gap-2 rounded-full bg-black/75 px-3 py-1.5 text-[11px] font-semibold text-white/90 backdrop-blur-sm">
+            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+            {errorDetail || "Rebuffering…"}
           </div>
-        </TooltipContent>
-      </Tooltip>
-    </TooltipProvider>
+        </div>
+      )}
+
+      <div className="pointer-events-none absolute left-2 top-2 flex max-w-[calc(100%-5.5rem)] items-center gap-1.5 sm:left-3 sm:top-3 sm:gap-2">
+        <span className="shrink-0 rounded-md bg-black/70 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wider text-white/95 sm:px-2 sm:py-1 sm:text-[10px]">
+          Slot {slot}
+        </span>
+        {channelName && (
+          <span className="hidden min-w-0 max-w-[220px] truncate rounded-md bg-black/60 px-2 py-1 text-[10px] font-semibold text-white/90 sm:inline">
+            {channelName}
+          </span>
+        )}
+      </div>
+
+      <div className="pointer-events-none absolute right-2 top-2 flex items-center gap-1 sm:right-3 sm:top-3">
+        {active ? (
+          <span className="inline-flex items-center gap-1 rounded-md bg-arena-violet/90 px-1.5 py-0.5 text-[9px] font-bold uppercase text-white sm:px-2 sm:py-1 sm:text-[10px]">
+            <Volume2 className="h-3 w-3" />
+            <span className="hidden sm:inline">Audio</span>
+          </span>
+        ) : (
+          <span className="inline-flex items-center gap-1 rounded-md bg-black/60 px-1.5 py-0.5 text-[9px] font-semibold text-white/80 sm:px-2 sm:py-1 sm:text-[10px]">
+            <VolumeX className="h-3 w-3" />
+            <span className="hidden sm:inline">Muted</span>
+          </span>
+        )}
+      </div>
+
+      {!placeholder && (
+        <button
+          type="button"
+          onClick={toggleFullscreen}
+          className="pointer-events-auto absolute bottom-3 right-3 inline-flex items-center gap-1 rounded-md bg-black/70 px-2 py-1 text-[10px] font-semibold text-white opacity-0 transition group-hover:opacity-100 focus:opacity-100"
+          aria-label="Fullscreen"
+        >
+          <Maximize2 className="h-3 w-3" /> Full
+        </button>
+      )}
+    </div>
   );
 }

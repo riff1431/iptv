@@ -17,8 +17,23 @@ import { formatTypingLabel } from "@/lib/typing-label";
 import { EmojiGrid } from "@/components/sports-arena/EmojiGrid";
 import { TipComposerDialog } from "@/components/tips/TipComposerDialog";
 
-const EMOJIS = ["🔥", "🎉", "😂", "😮", "👏", "❤️", "⚽", "🏀", "🏆", "💯", "🥳", "🤯", "😎", "🙌", "👀"];
-
+const EMOJIS = [
+  "🔥",
+  "🎉",
+  "😂",
+  "😮",
+  "👏",
+  "❤️",
+  "⚽",
+  "🏀",
+  "🏆",
+  "💯",
+  "🥳",
+  "🤯",
+  "😎",
+  "🙌",
+  "👀",
+];
 
 function timeLabel(iso: string) {
   const d = new Date(iso);
@@ -89,7 +104,6 @@ export function ArenaChatPanel({
     messageId: string;
     body: string;
   } | null>(null);
-
 
   useEffect(() => {
     const missing = Array.from(
@@ -174,8 +188,6 @@ export function ArenaChatPanel({
     if (isAtBottom && unreadCount !== 0) setUnreadCount(0);
   }
 
-
-
   async function submit(e: React.FormEvent) {
     e.preventDefault();
     if (!draft.trim() || !roomId || !user) return;
@@ -191,10 +203,9 @@ export function ArenaChatPanel({
   return (
     <aside
       aria-hidden={!visible}
-      className={`arena-card relative flex h-[480px] min-h-[420px] flex-col rounded-2xl sm:h-[560px] lg:h-[720px] ${visible ? "" : "hidden"}`}
+      className={`arena-card relative flex h-[480px] min-h-[420px] flex-col rounded-2xl sm:h-[560px] lg:h-auto lg:min-h-0 lg:flex-1 ${visible ? "" : "hidden"}`}
     >
       <div className="flex items-start justify-between gap-3 border-b border-arena-border px-4 py-3 sm:px-5 sm:py-4">
-
         <div>
           <h3 className="font-display text-sm font-bold uppercase tracking-wider text-white">
             {roomLabel}
@@ -233,12 +244,8 @@ export function ArenaChatPanel({
         onScroll={onScroll}
         className="flex-1 space-y-3 overflow-y-auto overscroll-contain px-4 py-3 sm:space-y-3.5 sm:px-5 sm:py-4"
       >
-        {!roomId && (
-          <div className="text-xs text-muted-foreground">{emptyLabel}</div>
-        )}
-        {roomId && loading && (
-          <div className="text-xs text-muted-foreground">Loading chat…</div>
-        )}
+        {!roomId && <div className="text-xs text-muted-foreground">{emptyLabel}</div>}
+        {roomId && loading && <div className="text-xs text-muted-foreground">Loading chat…</div>}
         {roomId && !loading && messages.length === 0 && (
           <div className="text-xs text-muted-foreground">No messages yet. Say hi 👋</div>
         )}
