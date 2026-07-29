@@ -13,6 +13,7 @@ import { useIptvRecents } from "@/hooks/useIptvRecents";
 import { ChannelCard } from "@/components/iptv/ChannelCard";
 import { cn } from "@/lib/utils";
 import { getPublicIptvChannelPlayback } from "@/lib/iptv-provider.functions";
+import type { IptvChannel } from "@/lib/m3u-parser";
 
 export const Route = createFileRoute("/iptv/$channelId")({
   head: () => ({
@@ -37,10 +38,25 @@ function IptvChannelPage() {
   const playback = useQuery({
     queryKey: ["iptv", "playback", channelId],
     queryFn: () => getPlayback({ data: { channelId } }),
-    enabled: Boolean(channel && isGlobalXtream),
+    // The signed relay URL only needs the channel ID. Start it alongside the
+    // large catalog request instead of waiting for all ~19k channels to parse.
+    enabled: ready && isGlobalXtream,
     staleTime: 5 * 60 * 1000,
   });
   const playbackUrl = isGlobalXtream ? (playback.data?.url ?? "") : (channel?.url ?? "");
+  const activeChannel: IptvChannel | undefined =
+    channel ??
+    (isGlobalXtream
+      ? {
+          id: channelId,
+          name: `Channel ${channelId}`,
+          logo: null,
+          group: null,
+          tvgId: null,
+          tvgName: null,
+          url: "",
+        }
+      : undefined);
 
   useEffect(() => {
     if (channel) push(channel.id);
@@ -52,7 +68,7 @@ function IptvChannelPage() {
     return channels.filter((c) => c.group === channel.group && c.id !== channel.id).slice(0, 6);
   }, [channels, channel]);
 
-  if (isLoading || (channel && isGlobalXtream && playback.isLoading)) {
+  if ((!isGlobalXtream && isLoading) || (isGlobalXtream && !playbackUrl && playback.isLoading)) {
     return (
       <div className="flex h-96 flex-col items-center justify-center gap-3 rounded-2xl border border-white/10 bg-card/30 p-8 backdrop-blur-md">
         <div className="h-8 w-8 animate-spin rounded-full border-2 border-primary border-t-transparent" />
@@ -61,7 +77,7 @@ function IptvChannelPage() {
     );
   }
 
-  if (!channel) {
+  if (!activeChannel) {
     return (
       <div className="flex flex-col items-center justify-center rounded-2xl border border-white/10 bg-card/30 p-12 text-center backdrop-blur-md">
         <Tv className="h-10 w-10 text-muted-foreground/40" />
@@ -92,23 +108,23 @@ function IptvChannelPage() {
     );
   }
 
-  const fav = has(channel.id);
+  const fav = has(activeChannel.id);
 
   return (
     <div className="flex flex-col gap-5 pb-8">
       {/* Video Player Box with Ambient Glow */}
       <div className="relative overflow-hidden rounded-2xl border border-white/10 bg-black shadow-2xl shadow-primary/10">
-        <IPTVPlayer url={playbackUrl} poster={channel.logo} />
+        <IPTVPlayer url={playbackUrl} poster={activeChannel.logo} />
       </div>
 
       {/* Live Channel Info Bar */}
       <div className="flex flex-col gap-4 rounded-xl border border-white/10 bg-card/50 p-4 backdrop-blur-md sm:flex-row sm:items-center sm:justify-between">
         <div className="flex items-center gap-3 min-w-0">
           <div className="relative h-12 w-16 shrink-0 overflow-hidden rounded-lg bg-black/60 p-1 flex items-center justify-center border border-white/10">
-            {channel.logo ? (
+            {activeChannel.logo ? (
               <img
-                src={channel.logo}
-                alt={channel.name}
+                src={activeChannel.logo}
+                alt={activeChannel.name}
                 className="max-h-full max-w-full object-contain"
                 onError={(e) => {
                   (e.currentTarget as HTMLImageElement).style.display = "none";
@@ -121,7 +137,7 @@ function IptvChannelPage() {
           <div className="min-w-0 flex-1">
             <div className="flex items-center gap-2">
               <h2 className="truncate text-base font-bold text-foreground sm:text-lg">
-                {channel.name}
+                {activeChannel.name}
               </h2>
               <Badge
                 variant="outline"
@@ -131,8 +147,10 @@ function IptvChannelPage() {
                 LIVE
               </Badge>
             </div>
-            {channel.group && (
-              <p className="truncate text-xs font-medium text-muted-foreground">{channel.group}</p>
+            {activeChannel.group && (
+              <p className="truncate text-xs font-medium text-muted-foreground">
+                {activeChannel.group}
+              </p>
             )}
           </div>
         </div>
@@ -141,7 +159,7 @@ function IptvChannelPage() {
           <Button
             variant="outline"
             size="sm"
-            onClick={() => toggle(channel.id)}
+            onClick={() => toggle(activeChannel.id)}
             aria-pressed={fav}
             className={cn(
               "h-9 border-white/10 text-xs font-semibold backdrop-blur-sm transition-colors",
@@ -155,7 +173,7 @@ function IptvChannelPage() {
       </div>
 
       {/* Same Category Quick Switcher */}
-      {categoryChannels.length > 0 && (
+      {categoryChannels.length > 0 && channel && (
         <section className="space-y-3">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-muted-foreground">

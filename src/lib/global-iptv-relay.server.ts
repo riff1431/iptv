@@ -28,10 +28,27 @@ export type RelayResource = {
   finalUrl: string;
 };
 
+export type RelayResourceResponse =
+  | { kind: "buffered"; resource: RelayResource }
+  | {
+      kind: "stream";
+      body: ReadableStream<Uint8Array>;
+      contentType: string;
+      finalUrl: string;
+    };
+
+type StreamingResource = {
+  claimed: boolean;
+  body: ReadableStream<Uint8Array>;
+  contentType: string;
+  finalUrl: string;
+  completed: Promise<RelayResource>;
+};
 const playlistCache = new Map<string, PlaylistEntry>();
 const playlistInflight = new Map<string, Promise<PlaylistEntry>>();
 const resourceCache = new Map<string, RelayResource>();
 const resourceInflight = new Map<string, Promise<RelayResource>>();
+const resourceStreamStarts = new Map<string, Promise<StreamingResource | RelayResource>>();
 let resourceCacheBytes = 0;
 
 // ---------------------------------------------------------------------------
@@ -177,6 +194,31 @@ function assertUsefulUpstream(status: number, byteLength: number): void {
   }
 }
 
+function assertStreamableUpstream(response: Response): void {
+  const declaredLength = Number(response.headers.get("content-length") || 0);
+  if (response.status === 458) {
+    throw new IptvRelayUpstreamError(
+      429,
+      "Xtream connection limit reached. Stop the existing provider session and retry.",
+    );
+  }
+  if (response.status < 200 || response.status >= 300) {
+    throw new IptvRelayUpstreamError(502, `Upstream returned HTTP ${response.status}`);
+  }
+  if (declaredLength > MAX_RESOURCE_BYTES) {
+    throw new IptvRelayUpstreamError(502, "Upstream resource exceeds relay size limit");
+  }
+}
+
+function isPlaylistResponse(response: Response, finalUrl: string): boolean {
+  const type = response.headers.get("content-type")?.toLowerCase() || "";
+  if (type.includes("mpegurl")) return true;
+  try {
+    return /\.m3u8?$/i.test(new URL(finalUrl).pathname);
+  } catch {
+    return false;
+  }
+}
 async function readResponseCapped(
   response: Response,
   maxBytes: number,
@@ -435,6 +477,147 @@ export async function getSharedGlobalResource(
   return pending;
 }
 
+/**
+ * Streams a cache-miss media segment to the first viewer as bytes arrive from
+ * the provider. A tee'd branch is still buffered into the shared cache, so
+ * concurrent viewers wait for and reuse the same upstream request instead of
+ * consuming another Xtream connection. Playlists remain buffered because they
+ * must be inspected and rewritten before they are safe to return.
+ */
+export async function getSharedGlobalResourceResponse(
+  scope: string,
+  upstreamUrl: string,
+): Promise<RelayResourceResponse> {
+  const key = cacheKey(scope, upstreamUrl);
+  const now = Date.now();
+  pruneResourceCache(now);
+  const cached = resourceCache.get(key);
+  if (cached && now - cached.fetchedAt < RESOURCE_TTL_MS) {
+    touchResource(key, cached);
+    return { kind: "buffered", resource: cached };
+  }
+
+  const l2 = await l2GetResource(key);
+  if (l2) {
+    if (l2.bytes.byteLength <= MAX_CACHEABLE_RESOURCE_BYTES) {
+      resourceCache.set(key, l2);
+      resourceCacheBytes += l2.bytes.byteLength;
+      pruneResourceCache(Date.now());
+    }
+    return { kind: "buffered", resource: l2 };
+  }
+
+  const bufferedInflight = resourceInflight.get(key);
+  if (bufferedInflight) {
+    return { kind: "buffered", resource: await bufferedInflight };
+  }
+
+  let start = resourceStreamStarts.get(key);
+  if (!start) {
+    start = (async (): Promise<StreamingResource | RelayResource> => {
+      const timeout = createTimeout();
+      try {
+        const { response, finalUrl } = await fetchWithRedirects(
+          upstreamUrl,
+          UPSTREAM_HEADERS,
+          timeout.signal,
+        );
+        assertStreamableUpstream(response);
+
+        // Nested HLS playlists cannot be streamed because every upstream URI
+        // must first be replaced with an encrypted same-origin relay URI.
+        if (isPlaylistResponse(response, finalUrl) || !response.body) {
+          const bytes = await readResponseCapped(response, MAX_RESOURCE_BYTES, "Upstream resource");
+          assertUsefulUpstream(response.status, bytes.byteLength);
+          const entry: RelayResource = {
+            fetchedAt: Date.now(),
+            bytes,
+            contentType: response.headers.get("content-type") || "application/octet-stream",
+            finalUrl,
+          };
+          if (bytes.byteLength <= MAX_CACHEABLE_RESOURCE_BYTES) {
+            resourceCache.set(key, entry);
+            resourceCacheBytes += bytes.byteLength;
+            pruneResourceCache(Date.now());
+            void l2PutResource(key, entry);
+          }
+          timeout.clear();
+          resourceStreamStarts.delete(key);
+          return entry;
+        }
+
+        const [viewerBody, cacheBody] = response.body.tee();
+        const contentType = response.headers.get("content-type") || "application/octet-stream";
+        const declaredLength = response.headers.get("content-length");
+        const cacheResponse = new Response(cacheBody, {
+          headers: {
+            "content-type": contentType,
+            ...(declaredLength ? { "content-length": declaredLength } : {}),
+          },
+        });
+        const completed = (async (): Promise<RelayResource> => {
+          try {
+            const bytes = await readResponseCapped(
+              cacheResponse,
+              MAX_RESOURCE_BYTES,
+              "Upstream resource",
+            );
+            const entry: RelayResource = {
+              fetchedAt: Date.now(),
+              bytes,
+              contentType,
+              finalUrl,
+            };
+            if (bytes.byteLength <= MAX_CACHEABLE_RESOURCE_BYTES) {
+              resourceCache.set(key, entry);
+              resourceCacheBytes += bytes.byteLength;
+              pruneResourceCache(Date.now());
+              void l2PutResource(key, entry);
+            }
+            return entry;
+          } finally {
+            timeout.clear();
+            resourceInflight.delete(key);
+            resourceStreamStarts.delete(key);
+          }
+        })();
+        resourceInflight.set(key, completed);
+        void completed.catch(() => {});
+        return {
+          claimed: false,
+          body: viewerBody,
+          contentType,
+          finalUrl,
+          completed,
+        };
+      } catch (error) {
+        timeout.clear();
+        resourceStreamStarts.delete(key);
+        if ((error as { name?: string } | null)?.name === "AbortError") {
+          throw new IptvRelayUpstreamError(504, "Upstream resource timed out");
+        }
+        throw error;
+      }
+    })();
+    resourceStreamStarts.set(key, start);
+  }
+
+  const started = await start;
+  if ("bytes" in started) {
+    resourceStreamStarts.delete(key);
+    return { kind: "buffered", resource: started };
+  }
+  if (!started.claimed) {
+    started.claimed = true;
+    return {
+      kind: "stream",
+      body: started.body,
+      contentType: started.contentType,
+      finalUrl: started.finalUrl,
+    };
+  }
+  return { kind: "buffered", resource: await started.completed };
+}
 export function rewriteNestedRelayPlaylist(
   playlist: string,
   scope: string,
@@ -449,5 +632,6 @@ export function resetGlobalIptvRelayForTests(): void {
   playlistInflight.clear();
   resourceCache.clear();
   resourceInflight.clear();
+  resourceStreamStarts.clear();
   resourceCacheBytes = 0;
 }

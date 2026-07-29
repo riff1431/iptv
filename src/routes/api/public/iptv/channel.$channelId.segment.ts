@@ -1,7 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import {
   IptvRelayUpstreamError,
-  getSharedGlobalResource,
+  getSharedGlobalResourceResponse,
   rewriteNestedRelayPlaylist,
 } from "@/lib/global-iptv-relay.server";
 import { openRelayUrl } from "@/lib/iptv-relay-token.server";
@@ -49,7 +49,19 @@ export async function handleGlobalRelaySegment(
   }
 
   try {
-    const resource = await getSharedGlobalResource(scope, upstreamUrl);
+    const result = await getSharedGlobalResourceResponse(scope, upstreamUrl);
+    if (result.kind === "stream") {
+      return new Response(result.body, {
+        status: 200,
+        headers: {
+          "Content-Type": mediaContentType(result.contentType, result.finalUrl),
+          "Cache-Control": "public, max-age=15, immutable",
+          "X-Accel-Buffering": "no",
+        },
+      });
+    }
+
+    const resource = result.resource;
     const maybePlaylist = new TextDecoder().decode(resource.bytes.subarray(0, 16_384));
     const isPlaylist =
       resource.contentType.toLowerCase().includes("mpegurl") ||

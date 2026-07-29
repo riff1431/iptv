@@ -262,10 +262,11 @@ export function IPTVPlayer({ url, poster }: Props) {
         enableWorker: true,
         // IPTV-tuned live settings — generous network tolerance, relaxed polling.
         lowLatencyMode: false, // Turn off aggressive sub-second polling to eliminate HTTP 458 provider line locks
-        liveSyncDurationCount: 4, // 4-segment buffer reserve absorbs provider network jitter
-        liveMaxLatencyDurationCount: 8,
+        liveSyncDurationCount: 2, // Start closer to live while retaining a small jitter reserve
+        liveMaxLatencyDurationCount: 6,
         backBufferLength: 30,
         maxBufferLength: 30,
+        startFragPrefetch: true,
         // Retry each fragment up to 8 times before declaring a fatal error,
         // with exponential back-off capped at 4 s. This absorbs provider CDN hiccups.
         fragLoadingMaxRetry: 8,

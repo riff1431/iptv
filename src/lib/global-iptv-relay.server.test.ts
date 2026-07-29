@@ -4,6 +4,7 @@ import {
   IptvRelayUpstreamError,
   getSharedGlobalPlaylist,
   getSharedGlobalResource,
+  getSharedGlobalResourceResponse,
   resetGlobalIptvRelayForTests,
 } from "./global-iptv-relay.server";
 
@@ -96,5 +97,51 @@ describe("global IPTV shared relay", () => {
       status: 502,
       message: expect.stringContaining("size limit"),
     } satisfies Partial<IptvRelayUpstreamError>);
+  });
+  it("streams the first media response while warming the shared cache", async () => {
+    let finish!: () => void;
+    const body = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(new Uint8Array([0x47, 0x40]));
+        finish = () => {
+          controller.enqueue(new Uint8Array([0x00, 0x10]));
+          controller.close();
+        };
+      },
+    });
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(body, {
+        status: 200,
+        headers: { "content-type": "video/mp2t" },
+      }),
+    );
+    const upstream = "https://cdn.provider.test/hls/live-segment.ts";
+
+    const first = await getSharedGlobalResourceResponse("global-xtream:123", upstream);
+    expect(first.kind).toBe("stream");
+    if (first.kind !== "stream") throw new Error("Expected progressive media response");
+
+    const reader = first.body.getReader();
+    expect(await reader.read()).toEqual({ done: false, value: new Uint8Array([0x47, 0x40]) });
+
+    let secondSettled = false;
+    const secondPromise = getSharedGlobalResourceResponse("global-xtream:123", upstream).then(
+      (result) => {
+        secondSettled = true;
+        return result;
+      },
+    );
+    await Promise.resolve();
+    expect(secondSettled).toBe(false);
+
+    finish();
+    expect(await reader.read()).toEqual({ done: false, value: new Uint8Array([0x00, 0x10]) });
+    expect(await reader.read()).toEqual({ done: true, value: undefined });
+
+    const second = await secondPromise;
+    expect(second.kind).toBe("buffered");
+    if (second.kind !== "buffered") throw new Error("Expected cached media response");
+    expect(second.resource.bytes).toEqual(new Uint8Array([0x47, 0x40, 0x00, 0x10]));
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
   });
 });
