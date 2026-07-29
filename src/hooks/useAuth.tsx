@@ -11,6 +11,10 @@ export interface AuthState {
   user: User | null;
   roles: AppRole[];
   loading: boolean;
+  // False until roles for the *current* user have been resolved (success or
+  // failure). Lets callers wait for `isAdmin`/`isModerator` to be trustworthy
+  // before acting on a role — e.g. the post-login redirect in routes/auth.tsx.
+  rolesLoaded: boolean;
   isAdmin: boolean;
   isModerator: boolean;
   signOut: () => Promise<void>;
@@ -102,6 +106,7 @@ export function useAuthState(): AuthState {
   const user = useSyncExternalStore(subscribeUser, getUserSnapshot, getUserServerSnapshot);
   const [roles, setRoles] = useState<AppRole[]>([]);
   const [loading, setLoading] = useState(true);
+  const [rolesLoaded, setRolesLoaded] = useState(false);
   const prevAdminRef = useRef<boolean | null>(null);
 
   const applyRoles = useCallback((userId: string, next: AppRole[]) => {
@@ -123,9 +128,12 @@ export function useAuthState(): AuthState {
       const { data } = await supabase.auth.getUser();
       const u = data.user ?? null;
       setUserStore(u);
-      if (u) applyRoles(u.id, await fetchRoles(u.id));
-      else {
+      if (u) {
+        applyRoles(u.id, await fetchRoles(u.id));
+        setRolesLoaded(true);
+      } else {
         setRoles([]);
+        setRolesLoaded(false);
         prevAdminRef.current = null;
       }
     } catch {
@@ -134,6 +142,9 @@ export function useAuthState(): AuthState {
       // guard components to spin and CatchBoundary to retry in a loop.
       setUserStore(null);
       setRoles([]);
+      // Roles have "resolved" (to empty) so callers waiting on rolesLoaded
+      // are not stranded on /auth after a transient fetchRoles failure.
+      setRolesLoaded(true);
       prevAdminRef.current = null;
     } finally {
       setLoading(false);
@@ -148,9 +159,17 @@ export function useAuthState(): AuthState {
       if (event === "SIGNED_IN" || event === "SIGNED_OUT" || event === "USER_UPDATED") {
         const u = session?.user ?? null;
         setUserStore(u);
-        if (u) void fetchRoles(u.id).then((r) => applyRoles(u.id, r));
-        else {
+        if (u) {
+          // Reset rolesLoaded for the (possibly new) user, then resolve once
+          // fetchRoles settles so the post-login redirect waits for a
+          // trustworthy `isAdmin` before choosing its target.
+          setRolesLoaded(false);
+          void fetchRoles(u.id)
+            .then((r) => applyRoles(u.id, r))
+            .finally(() => setRolesLoaded(true));
+        } else {
           setRoles([]);
+          setRolesLoaded(false);
           prevAdminRef.current = null;
         }
       }
@@ -207,12 +226,13 @@ export function useAuthState(): AuthState {
       user,
       roles,
       loading,
+      rolesLoaded,
       isAdmin: roles.includes("admin"),
       isModerator: roles.includes("moderator") || roles.includes("admin"),
       signOut,
       refresh: load,
     }),
-    [user, roles, loading, signOut, load],
+    [user, roles, loading, rolesLoaded, signOut, load],
   );
 }
 

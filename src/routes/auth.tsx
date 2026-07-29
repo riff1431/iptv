@@ -102,12 +102,12 @@ function PgxLogo() {
 function AuthPage() {
   const search = useSearch({ from: "/auth" });
   const navigate = useNavigate();
-  const { user, isAdmin, loading } = useAuth();
+  const { user, isAdmin, loading, rolesLoaded } = useAuth();
   const [mode, setMode] = useState<"signin" | "signup">(search.mode ?? "signin");
   const redirectedRef = useRef(false);
 
   useEffect(() => {
-    if (!loading && user && !redirectedRef.current) {
+    if (!loading && user && rolesLoaded && !redirectedRef.current) {
       redirectedRef.current = true;
       const fallback = isAdmin ? "/admin" : "/dashboard";
       const safeRedirect = sanitizeRedirect(search.redirect);
@@ -130,7 +130,7 @@ function AuthPage() {
       const { pathname, search: qs, hash } = splitLocation(target);
       navigate({ to: pathname, search: qs, hash: hash || undefined, replace: true });
     }
-  }, [loading, user, isAdmin, navigate, search.redirect, mode]);
+  }, [loading, user, isAdmin, rolesLoaded, navigate, search.redirect, mode]);
 
 
 
