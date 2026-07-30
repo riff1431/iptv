@@ -20,7 +20,6 @@ export type HlsTileProps = {
   sport?: string | null;
 };
 
-
 /**
  * Single TV tile. Loads HLS from the server proxy with the current user's
  * bearer token, auto-recovers from stalls/errors, supports per-tile fullscreen,
@@ -38,40 +37,98 @@ export function HlsTile({
   matchup = null,
   sport = null,
 }: HlsTileProps) {
-
   const containerRef = useRef<HTMLDivElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
   const hlsRef = useRef<Hls | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [errorDetail, setErrorDetail] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const [playing, setPlaying] = useState(false);
+  const [buffering, setBuffering] = useState(false);
+  const [phase, setPhase] = useState<"attaching" | "manifest" | "ready" | "playing">("attaching");
   const [attempt, setAttempt] = useState(0);
 
   useEffect(() => {
     const video = videoRef.current;
     if (!video) return;
     let cancelled = false;
+    let hlsAutoRetries = 0;
+    let warmupTimer: ReturnType<typeof setTimeout> | null = null;
+    let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+
+    const clearWarmup = () => {
+      if (warmupTimer !== null) {
+        clearTimeout(warmupTimer);
+        warmupTimer = null;
+      }
+    };
+    const fail = (message: string, detail?: string) => {
+      if (cancelled) return;
+      clearWarmup();
+      setError(message);
+      setErrorDetail(detail ?? null);
+      setLoading(false);
+      setPlaying(false);
+      setBuffering(false);
+    };
+    const armWarmup = () => {
+      clearWarmup();
+      warmupTimer = setTimeout(() => {
+        fail(
+          "Stream is taking too long",
+          "No playable video frame arrived within 15 seconds. Retry or check the channel in Admin TVs.",
+        );
+      }, 15_000);
+    };
+    const onCanPlay = () => {
+      if (cancelled) return;
+      setPhase("ready");
+      void video.play().catch(() => {});
+    };
+    const onPlaying = () => {
+      if (cancelled) return;
+      clearWarmup();
+      setPhase("playing");
+      setError(null);
+      setErrorDetail(null);
+      setLoading(false);
+      setPlaying(true);
+      setBuffering(false);
+    };
+    const onWaiting = () => {
+      if (!cancelled) setBuffering(true);
+    };
+    const onMediaError = () => {
+      fail(
+        "Stream failed to play",
+        video.error?.message || "The media source could not be decoded.",
+      );
+    };
+
+    video.addEventListener("canplay", onCanPlay);
+    video.addEventListener("playing", onPlaying);
+    video.addEventListener("waiting", onWaiting);
+    video.addEventListener("stalled", onWaiting);
+    video.addEventListener("error", onMediaError);
 
     async function boot() {
       setLoading(true);
+      setPlaying(false);
+      setBuffering(false);
       setError(null);
+      setErrorDetail(null);
+      setPhase("attaching");
 
       const { data } = await supabase.auth.getSession();
       const token = data.session?.access_token;
       if (!token) {
-        setError("Sign in to watch");
-        setLoading(false);
+        fail("Sign in to watch");
         return;
       }
       if (cancelled || !video) return;
 
       const src = `/api/sports-arena/tv/${tvId}/playlist`;
-
-      // Native HLS (Safari)
-      if (video.canPlayType("application/vnd.apple.mpegurl")) {
-        video.src = src;
-        // Safari can't set auth header on <video src>; fall through to hls.js
-        // if it fails. But if the browser supports MSE we prefer hls.js anyway.
-      }
+      armWarmup();
 
       if (Hls.isSupported()) {
         const hls = new Hls({
@@ -80,41 +137,74 @@ export function HlsTile({
           },
           liveDurationInfinity: true,
           lowLatencyMode: false,
+          backBufferLength: 30,
           maxBufferLength: 20,
+          liveSyncDurationCount: 3,
+          liveMaxLatencyDurationCount: 6,
         });
         hlsRef.current = hls;
+        // Match the proven Arena attachment sequence.
         hls.loadSource(src);
         hls.attachMedia(video);
         hls.on(Hls.Events.MANIFEST_PARSED, () => {
-          setLoading(false);
+          if (cancelled) return;
+          setPhase("manifest");
           void video.play().catch(() => {});
         });
         hls.on(Hls.Events.ERROR, (_evt, data) => {
-          if (!data.fatal) return;
+          if (cancelled) return;
           const httpCode = data.response?.code;
           if (httpCode === 409) {
-            setError("Stream is offline");
-            setLoading(false);
+            fail("Stream is offline", "Start this TV's shared stream from Admin TVs.");
             hls.destroy();
-            // Auto-retry every 10s so viewers reconnect once admin restarts.
-            window.setTimeout(() => setAttempt((n) => n + 1), 10_000);
+            reconnectTimer = setTimeout(() => setAttempt((n) => n + 1), 10_000);
             return;
           }
-          if (data.type === Hls.ErrorTypes.NETWORK_ERROR) {
-            hls.startLoad();
-          } else if (data.type === Hls.ErrorTypes.MEDIA_ERROR) {
-            hls.recoverMediaError();
-          } else {
-            setError("Stream error");
-            setLoading(false);
+          if (httpCode === 429) {
+            fail(
+              "Provider connection limit reached",
+              "This IPTV account already has too many active streams. Stop another provider stream and retry.",
+            );
+            hls.destroy();
+            reconnectTimer = setTimeout(() => setAttempt((n) => n + 1), 10_000);
+            return;
           }
+
+          if (!data.fatal) {
+            if (data.type === Hls.ErrorTypes.NETWORK_ERROR) hls.startLoad();
+            else if (data.type === Hls.ErrorTypes.MEDIA_ERROR) hls.recoverMediaError();
+            return;
+          }
+
+          if (
+            data.type === Hls.ErrorTypes.NETWORK_ERROR ||
+            data.type === Hls.ErrorTypes.MEDIA_ERROR
+          ) {
+            hlsAutoRetries += 1;
+            if (hlsAutoRetries <= 3) {
+              setBuffering(true);
+              setErrorDetail(
+                data.type === Hls.ErrorTypes.NETWORK_ERROR
+                  ? "Reconnecting to the lounge stream…"
+                  : "Recovering the video decoder…",
+              );
+              armWarmup();
+              if (data.type === Hls.ErrorTypes.NETWORK_ERROR) hls.startLoad();
+              else hls.recoverMediaError();
+              return;
+            }
+          }
+
+          fail(
+            "Stream failed to start",
+            data.details || "The playlist loaded, but video segments could not be played.",
+          );
         });
       } else if (!video.canPlayType("application/vnd.apple.mpegurl")) {
-        setError("HLS not supported in this browser");
-        setLoading(false);
+        fail("HLS not supported in this browser");
       } else {
-        // Native path: rely on the <video>
-        setLoading(false);
+        // Native HLS cannot attach the Bearer header required by this endpoint.
+        fail("Secure HLS playback is not supported in this browser");
       }
     }
 
@@ -122,11 +212,19 @@ export function HlsTile({
 
     return () => {
       cancelled = true;
+      clearWarmup();
+      if (reconnectTimer !== null) clearTimeout(reconnectTimer);
+      video.removeEventListener("canplay", onCanPlay);
+      video.removeEventListener("playing", onPlaying);
+      video.removeEventListener("waiting", onWaiting);
+      video.removeEventListener("stalled", onWaiting);
+      video.removeEventListener("error", onMediaError);
       hlsRef.current?.destroy();
       hlsRef.current = null;
+      video.removeAttribute("src");
+      video.load();
     };
   }, [tvId, attempt]);
-
   // Active-audio: only the active tile is unmuted.
   useEffect(() => {
     const v = videoRef.current;
@@ -158,18 +256,22 @@ export function HlsTile({
 
   const offline = status === "offline";
   const label = displayName ?? `TV ${slot}`;
-  const topLabel =
-    sport || channelName || label.replace(/^tv\s*\d+\s*-\s*/i, "");
-
+  // The selected IPTV channel is the authoritative identity for a lounge TV.
+  // `sport` / `matchup` can contain old manually entered demo data, so use
+  // them only as a fallback when no real channel has been selected.
+  const topLabel = channelName || sport || label.replace(/^tv\s*\d+\s*-\s*/i, "");
+  const secondaryLabel = channelName ? null : matchup;
 
   const sportLabel = sport || channelName || null;
   const statusLabel = offline
     ? "offline"
     : error
       ? `error: ${error}`
-      : loading
-        ? "loading"
-        : "live";
+      : playing
+        ? "live"
+        : buffering
+          ? "buffering"
+          : "connecting";
   const tileAriaLabel = [
     `TV ${slot}`,
     sportLabel,
@@ -215,7 +317,7 @@ export function HlsTile({
           role="img"
           wrapperClassName="pointer-events-none"
           imgClassName={
-            loading || error || offline
+            loading || buffering || error || offline
               ? "!opacity-60 transition-opacity duration-300"
               : "!opacity-0 transition-opacity duration-300"
           }
@@ -230,7 +332,7 @@ export function HlsTile({
         className="absolute inset-0 h-full w-full object-cover"
       />
 
-      {(loading || error || offline) && (
+      {(loading || buffering || error || offline) && (
         <>
           <div className="absolute inset-0 flex items-center justify-center bg-gradient-to-b from-black/50 via-black/60 to-black/85 text-center">
             <div className="max-w-[80%]">
@@ -244,6 +346,11 @@ export function HlsTile({
               ) : error ? (
                 <>
                   <div className="text-xs font-semibold text-live">{error}</div>
+                  {errorDetail && (
+                    <div className="mt-1 text-[10px] leading-relaxed text-muted-foreground">
+                      {errorDetail}
+                    </div>
+                  )}
                   <button
                     onClick={(e) => {
                       e.stopPropagation();
@@ -255,36 +362,48 @@ export function HlsTile({
                   </button>
                 </>
               ) : (
-                <div className="text-xs uppercase tracking-widest text-muted-foreground">
-                  Loading…
-                </div>
+                <>
+                  <div className="text-xs uppercase tracking-widest text-muted-foreground">
+                    {buffering ? "Buffering stream…" : "Connecting stream…"}
+                  </div>
+                  <div className="mt-1 text-[10px] text-white/45">
+                    {phase === "manifest"
+                      ? "Playlist attached · waiting for video"
+                      : phase === "ready"
+                        ? "Video ready · starting playback"
+                        : "Attaching secure lounge feed"}
+                  </div>
+                </>
               )}
             </div>
           </div>
         </>
       )}
 
-      {/* Top-left label — sport + matchup when the admin has set them */}
+      {/* Top-left label — actual IPTV channel, with legacy metadata as fallback */}
       <div className="pointer-events-none absolute left-3 top-3 max-w-[70%]">
         <span className="block truncate rounded-md bg-black/70 px-2.5 py-1 text-[11px] font-bold uppercase tracking-wider text-white/95 backdrop-blur">
           TV {slot} · {topLabel}
         </span>
-        {matchup && (
+        {secondaryLabel && (
           <span className="mt-1 block truncate rounded-md bg-black/60 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-white/80 backdrop-blur">
-            {matchup}
+            {secondaryLabel}
           </span>
         )}
       </div>
 
-
-      {/* Top-right LIVE badge */}
+      {/* Top-right playback badge — LIVE only after the first playing event */}
       <div className="pointer-events-none absolute right-3 top-3">
         <span
           className={`inline-flex h-6 items-center rounded-[6px] px-2.5 text-[11px] font-bold uppercase leading-none tracking-[0.08em] ${
-            offline ? "bg-muted text-muted-foreground" : "bg-live text-live-foreground"
+            offline || error
+              ? "bg-muted text-muted-foreground"
+              : playing
+                ? "bg-live text-live-foreground"
+                : "bg-warning/90 text-black"
           }`}
         >
-          {offline ? "OFF" : "LIVE"}
+          {offline || error ? "OFF" : playing ? "LIVE" : buffering ? "BUFFER" : "CONNECT"}
         </span>
       </div>
 

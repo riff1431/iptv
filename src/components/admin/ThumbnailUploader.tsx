@@ -67,14 +67,18 @@ async function deleteThumbFromBucket(url: string): Promise<boolean> {
 export function ThumbnailUploader({
   value,
   onChange,
+  label = "Thumbnail",
 }: {
   value: string;
   onChange: (url: string) => void;
+  label?: string;
 }) {
   const [uploading, setUploading] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
-  const [confirmReplace, setConfirmReplace] = useState<{ file: File; previousUrl: string } | null>(null);
+  const [confirmReplace, setConfirmReplace] = useState<{ file: File; previousUrl: string } | null>(
+    null,
+  );
   const [error, setError] = useState<string | null>(null);
   const [previewError, setPreviewError] = useState(false);
 
@@ -120,7 +124,7 @@ export function ThumbnailUploader({
         .createSignedUrl(path, SIGNED_URL_TTL);
       if (signErr || !signed?.signedUrl) throw signErr ?? new Error("Failed to sign URL");
       onChange(signed.signedUrl);
-      toast.success("Thumbnail uploaded");
+      toast.success(`${label} uploaded`);
       if (extractThumbStoragePath(previousUrl)) {
         await deleteThumbFromBucket(previousUrl);
       }
@@ -149,7 +153,7 @@ export function ThumbnailUploader({
       const ok = await deleteThumbFromBucket(value);
       setDeleting(false);
       if (!ok) return;
-      toast.success("Thumbnail deleted");
+      toast.success(`${label} deleted`);
     }
     onChange("");
   }
@@ -163,7 +167,7 @@ export function ThumbnailUploader({
   return (
     <div className="flex flex-col gap-2">
       <Label className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
-        Thumbnail
+        {label}
       </Label>
       <div className="flex flex-col gap-3 rounded-lg border border-arena-border bg-arena-panel-2/40 p-3 sm:flex-row sm:items-start">
         <div className="relative aspect-video w-full overflow-hidden rounded-md bg-black/30 sm:w-56 sm:shrink-0">
@@ -171,7 +175,7 @@ export function ThumbnailUploader({
             <>
               <img
                 src={value}
-                alt="Thumbnail preview"
+                alt={`${label} preview`}
                 className="h-full w-full object-cover"
                 onError={() => setPreviewError(true)}
               />
@@ -182,7 +186,11 @@ export function ThumbnailUploader({
                 className="absolute right-1 top-1 rounded-full bg-black/70 p-1 text-white hover:bg-black disabled:opacity-60"
                 aria-label={currentIsBucketObject ? "Delete thumbnail" : "Remove thumbnail"}
               >
-                {deleting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <X className="h-3.5 w-3.5" />}
+                {deleting ? (
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                ) : (
+                  <X className="h-3.5 w-3.5" />
+                )}
               </button>
             </>
           ) : (
@@ -213,7 +221,11 @@ export function ThumbnailUploader({
                   uploading ? "pointer-events-none opacity-60" : ""
                 }`}
               >
-                {uploading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />}
+                {uploading ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <Upload className="h-4 w-4" />
+                )}
                 {uploading ? "Uploading…" : value ? "Replace image" : "Upload image"}
               </span>
             </label>
@@ -247,7 +259,7 @@ export function ThumbnailUploader({
       <AlertDialog open={confirmDelete} onOpenChange={(v) => !v && setConfirmDelete(false)}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Delete this thumbnail?</AlertDialogTitle>
+            <AlertDialogTitle>Delete this {label.toLowerCase()}?</AlertDialogTitle>
             <AlertDialogDescription>
               The uploaded image will be permanently removed from storage. This cannot be undone.
             </AlertDialogDescription>
@@ -265,9 +277,10 @@ export function ThumbnailUploader({
       <AlertDialog open={!!confirmReplace} onOpenChange={(v) => !v && setConfirmReplace(null)}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Replace thumbnail?</AlertDialogTitle>
+            <AlertDialogTitle>Replace {label.toLowerCase()}?</AlertDialogTitle>
             <AlertDialogDescription>
-              Uploading a replacement will delete the current image from storage. This cannot be undone.
+              Uploading a replacement will delete the current image from storage. This cannot be
+              undone.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

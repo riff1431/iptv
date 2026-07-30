@@ -3,16 +3,22 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 
 const route = readFileSync(resolve(__dirname, "admin.arena.tsx"), "utf8");
+const adminShell = readFileSync(resolve(__dirname, "admin.tsx"), "utf8");
+const dashboard = readFileSync(
+  resolve(__dirname, "../components/admin/AdminDashboard.tsx"),
+  "utf8",
+);
 
-describe("Admin Arena new-match channel slot navigation", () => {
-  it("keeps the Channel slots tab clickable before the match has an ID", () => {
-    expect(route).not.toMatch(/disabled=\{s === ["']slots["'] && !savedId\}/);
-    expect(route).toMatch(/<TabsContent value=["']slots["']/);
+describe("retired Admin Arena editor", () => {
+  it("redirects legacy Arena URLs to Lounge management", () => {
+    expect(route).toMatch(/throw redirect\(\{ to: ["']\/admin\/lounges["'] \}\)/);
+    expect(route).not.toMatch(/listMatchesAdmin|upsertMatch|deleteMatch|TabsContent/);
   });
 
-  it("offers to create the parent match from the unsaved slot state", () => {
-    expect(route).toMatch(/Create match and continue/);
-    expect(route).toMatch(/onClick=\{\(\) => save\.mutate\(undefined\)\}/);
-    expect(route).toMatch(/Channel slots need a saved match ID/);
+  it("does not expose Arena management in the admin navigation or dashboard", () => {
+    expect(adminShell).not.toMatch(/to: ["']\/admin\/arena["']/);
+    expect(adminShell).not.toMatch(/label: ["']Arena["']/);
+    expect(dashboard).not.toMatch(/to=["']\/admin\/arena["']/);
+    expect(dashboard).not.toMatch(/Manage Arena/);
   });
 });

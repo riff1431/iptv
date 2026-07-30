@@ -71,9 +71,8 @@ export const testIptvConnection = createServerFn({ method: "POST" })
 const fetchInput = z.object({ tvId: z.string().uuid() });
 
 /**
- * Fetch the channel list for a saved TV, cache it in iptv_channels_cache,
- * and return the caller a channel DTO list for the picker UI. Never returns
- * upstream stream URLs — those are constructed server-side only.
+ * Fetch the channel list for a saved TV and return it directly to the picker.
+ * Never returns upstream stream URLs — those are constructed server-side only.
  */
 export const fetchIptvChannelsForTv = createServerFn({ method: "POST" })
   .middleware([requireAdminServer])
@@ -112,22 +111,6 @@ export const fetchIptvChannelsForTv = createServerFn({ method: "POST" })
       throw new Error(`IPTV fetch failed for TV ${tv.id}${who}.\nURL: ${safeUrl}\n${raw}`);
     });
 
-    // Upsert into cache. iptv_channels_cache columns:
-    // (tv_id, channel_id, name, logo, group_title, updated_at)
-    if (channels.length) {
-      // Wipe old cache for this TV first to prevent stale entries.
-      await supabaseAdmin.from("iptv_channels_cache").delete().eq("tv_id", tv.id);
-      await supabaseAdmin.from("iptv_channels_cache").insert(
-        channels.map((c) => ({
-          tv_id: tv.id,
-          channel_id: c.id,
-          name: c.name,
-          logo_url: c.logo,
-          category: c.group,
-        })),
-      );
-    }
-
     return channels;
   });
 
@@ -143,9 +126,8 @@ const previewInput = z.object({
  * Xtream: URL is derived from credentials and returned directly. It contains
  * user/pass — acceptable because only the admin who owns those credentials
  * ever sees it.
- * M3U: the channel entry IS the URL; we look it up in `iptv_channels_cache`
- * (populated by fetchIptvChannelsForTv). We only ship `stream_url` back when
- * present in the cache; otherwise return an error the UI can surface.
+ * M3U preview is not currently supported because the DTO intentionally does
+ * not persist or expose upstream stream URLs.
  */
 export const getChannelPreviewUrl = createServerFn({ method: "POST" })
   .middleware([requireAdminServer])
@@ -176,8 +158,7 @@ export const getChannelPreviewUrl = createServerFn({ method: "POST" })
       return { url };
     }
 
-    // M3U: look up the URL from cache. iptv_channels_cache doesn't currently
-    // store stream_url per row, so surface a friendly message for now.
+    // M3U channel URLs are intentionally not persisted or exposed.
     throw new Error(
       "Preview isn't available for M3U playlists yet — save this channel and use the TV preview instead.",
     );

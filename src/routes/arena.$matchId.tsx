@@ -12,8 +12,7 @@ import { useIptvPlaylist } from "@/hooks/useIptvPlaylist";
 import { MatchGrid } from "@/components/sports-arena/MatchGrid";
 import { resolveTvTileLayout, TV_TILE_LAYOUT_SIZE } from "@/lib/match-slot-count";
 import { MatchAccessGate } from "@/components/sports-arena/MatchAccessGate";
-import { useLiveTick, liveViewers, liveIsLive } from "@/hooks/useLiveTick";
-import { SportImage } from "@/components/SportImage";
+import { useLiveTick, liveViewers } from "@/hooks/useLiveTick";
 import { useAuth } from "@/hooks/useAuth";
 import { getMatchSlotPref, setMatchSlotPref } from "@/lib/match-slot-prefs.functions";
 import { getPublicIptvChannelPlaybacks } from "@/lib/iptv-provider.functions";
@@ -269,8 +268,6 @@ function MatchWatchInner({ match }: { match: PublicMatch }) {
   const presence = useLoungePresence(match.id);
   const baselineViewers = liveViewers(match.viewerCount, match.id, tick);
   const viewers = presence ?? baselineViewers;
-  const autoLive = liveIsLive(match.id, tick);
-  const isLive = match.status === "live" || (match.status === "scheduled" && autoLive);
 
   const noProviderConfigured = source === "demo" && !globalUrl && !hasLocalOverride;
 
@@ -352,26 +349,31 @@ function MatchWatchInner({ match }: { match: PublicMatch }) {
   return (
     <>
       <main className="mx-auto max-w-[1600px] px-3 pt-3 sm:px-6 sm:pt-4">
-        <ArenaHeader liveGames={enabledSlots.length} viewers={viewers} />
-
-        {/* Utility row: back link to arena browse */}
-        <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-          <Link
-            to="/arena"
-            onClick={(e) => {
-              // Prefer browser history so the grid restores scroll and filters
-              // when we came from /arena. Fall back to a fresh Link navigation
-              // on direct loads (no prior history entry for this app).
-              if (typeof window !== "undefined" && window.history.length > 1) {
-                e.preventDefault();
-                window.history.back();
-              }
-            }}
-            className="inline-flex items-center gap-2 rounded-lg border border-arena-border bg-arena-panel/70 px-3 py-2 text-[11px] font-bold uppercase tracking-wider text-muted-foreground hover:text-white"
-          >
-            <ArrowLeft className="h-3.5 w-3.5" /> Arena
-          </Link>
-        </div>
+        {/* Compact header: back button + match name, live stats, How to Play. */}
+        <ArenaHeader
+          liveGames={enabledSlots.length}
+          viewers={viewers}
+          title="Prime Time Lounge"
+          leading={
+            <Link
+              to="/arena"
+              onClick={(e) => {
+                // Prefer browser history so the grid restores scroll and filters
+                // when we came from /arena. Fall back to a fresh Link navigation
+                // on direct loads (no prior history entry for this app).
+                if (typeof window !== "undefined" && window.history.length > 1) {
+                  e.preventDefault();
+                  window.history.back();
+                }
+              }}
+              aria-label="Back to arena"
+              className="inline-flex shrink-0 items-center gap-2 rounded-lg border border-arena-border bg-arena-panel/70 px-2.5 py-2 text-muted-foreground transition hover:text-white"
+            >
+              <ArrowLeft className="h-4 w-4" />
+              <span>Lounge</span>
+            </Link>
+          }
+        />
 
         {/* Theatre card */}
         <div className="relative isolate overflow-hidden rounded-3xl border border-arena-border">
@@ -384,51 +386,6 @@ function MatchWatchInner({ match }: { match: PublicMatch }) {
             aria-hidden
             className="pointer-events-none absolute inset-0 z-0 bg-[linear-gradient(180deg,color-mix(in_oklab,var(--arena-bg)_55%,transparent)_0%,color-mix(in_oklab,var(--arena-bg)_30%,transparent)_45%,color-mix(in_oklab,var(--arena-bg)_80%,transparent)_100%)]"
           />
-
-          {/* Match summary strip inside theatre card */}
-          <section className="relative m-3 flex items-center gap-4 rounded-2xl border border-arena-border bg-arena-panel/70 p-3 sm:m-5 sm:p-4 lg:m-6">
-            <div className="hidden h-16 w-24 shrink-0 overflow-hidden rounded-lg bg-black/50 sm:block">
-              {match.thumbnailUrl ? (
-                <img src={match.thumbnailUrl} alt="" className="h-full w-full object-cover" />
-              ) : (
-                <SportImage sport={match.sport ?? ""} width={192} height={128} alt="" />
-              )}
-            </div>
-            <div className="min-w-0 flex-1">
-              <div className="flex items-center gap-2">
-                {match.sport && (
-                  <span className="rounded-md bg-black/60 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-white/95">
-                    {match.sport}
-                  </span>
-                )}
-                <span
-                  className={`inline-flex h-5 items-center rounded-[6px] px-2 text-[10px] font-bold uppercase leading-none ${
-                    isLive
-                      ? "bg-live text-live-foreground"
-                      : match.status === "final"
-                        ? "bg-black/70 text-white/80 ring-1 ring-inset ring-arena-border"
-                        : "bg-arena-panel-2/80 text-muted-foreground ring-1 ring-inset ring-arena-border"
-                  }`}
-                >
-                  {isLive
-                    ? "Live"
-                    : match.status === "final"
-                      ? "Final"
-                      : match.status === "halftime"
-                        ? "Half"
-                        : "Soon"}
-                </span>
-              </div>
-              <h1 className="mt-1 truncate font-display text-lg font-bold">{match.title}</h1>
-              {match.homeLabel && match.awayLabel && (
-                <div className="mt-1 flex items-center gap-2 text-sm text-white/90">
-                  <span className="truncate font-semibold">{match.homeLabel}</span>
-                  <span className="text-muted-foreground">vs</span>
-                  <span className="truncate font-semibold">{match.awayLabel}</span>
-                </div>
-              )}
-            </div>
-          </section>
 
           <div
             className={`relative grid gap-4 px-3 pb-3 sm:gap-5 sm:px-5 sm:pb-5 lg:px-6 lg:pb-6 ${
@@ -500,10 +457,10 @@ function MatchWatchInner({ match }: { match: PublicMatch }) {
                                   {TV_TILE_LAYOUT_SIZE}.
                                 </div>
                                 <Link
-                                  to="/admin/arena"
+                                  to="/admin/tvs"
                                   className="mt-1.5 inline-flex items-center gap-1 text-amber-200 underline underline-offset-2 hover:text-amber-100"
                                 >
-                                  <Settings className="h-3 w-3" /> Edit match slots
+                                  <Settings className="h-3 w-3" /> Manage TV channels
                                 </Link>
                               </div>
                             </div>

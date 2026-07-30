@@ -3,16 +3,9 @@ import { useState } from "react";
 import { Plus, Pencil, Trash2, Save, X, Building2 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
-import {
-  useLounges,
-  useUpsertLounge,
-  useDeleteLounge,
-  type Lounge,
-} from "@/lib/admin-queries";
-import {
-  AdminEmptyRow,
-  AdminLoadingRow,
-} from "@/components/admin/AdminStates";
+import { useLounges, useUpsertLounge, useDeleteLounge, type Lounge } from "@/lib/admin-queries";
+import { AdminEmptyRow, AdminLoadingRow } from "@/components/admin/AdminStates";
+import { ThumbnailUploader } from "@/components/admin/ThumbnailUploader";
 
 export const Route = createFileRoute("/admin/lounges")({
   component: AdminLoungesPage,
@@ -48,6 +41,7 @@ function AdminLoungesPage() {
         name,
         slug,
         tagline: editing.tagline ?? null,
+        cover_image_url: editing.cover_image_url?.trim() || null,
         vibe: editing.vibe ?? "Themed",
         entry_fee_cents: Number(editing.entry_fee_cents ?? 500),
         free_preview_seconds: Number(editing.free_preview_seconds ?? 120),
@@ -92,6 +86,7 @@ function AdminLoungesPage() {
         <table className="w-full text-sm">
           <thead>
             <tr>
+              <th className="arena-th px-4 py-3 text-left">Media</th>
               <th className="arena-th px-4 py-3 text-left">Name</th>
               <th className="arena-th px-4 py-3 text-left">Slug</th>
               <th className="arena-th px-4 py-3 text-left">Entry</th>
@@ -101,10 +96,10 @@ function AdminLoungesPage() {
             </tr>
           </thead>
           <tbody>
-            {isLoading && <AdminLoadingRow colSpan={6} label="Loading lounges…" />}
+            {isLoading && <AdminLoadingRow colSpan={7} label="Loading lounges…" />}
             {!isLoading && lounges.length === 0 && (
               <AdminEmptyRow
-                colSpan={6}
+                colSpan={7}
                 icon={Building2}
                 title="No lounges yet"
                 description="Create your first lounge to start streaming games."
@@ -112,12 +107,21 @@ function AdminLoungesPage() {
             )}
             {lounges.map((l) => (
               <tr key={l.id} className="border-b border-arena-border/60 last:border-0">
+                <td className="px-4 py-3">
+                  <div className="h-10 w-16 overflow-hidden rounded-md border border-arena-border bg-arena-panel-2">
+                    {l.cover_image_url ? (
+                      <img src={l.cover_image_url} alt="" className="h-full w-full object-cover" />
+                    ) : (
+                      <div className="grid h-full place-items-center text-[9px] uppercase text-muted-foreground">
+                        No media
+                      </div>
+                    )}
+                  </div>
+                </td>
                 <td className="px-4 py-3 font-medium">{l.name}</td>
                 <td className="px-4 py-3 font-mono text-xs text-muted-foreground">{l.slug}</td>
                 <td className="px-4 py-3">
-                  {l.entry_fee_cents === 0
-                    ? "Free"
-                    : `$${(l.entry_fee_cents / 100).toFixed(2)}`}
+                  {l.entry_fee_cents === 0 ? "Free" : `$${(l.entry_fee_cents / 100).toFixed(2)}`}
                 </td>
                 <td className="px-4 py-3">{l.free_preview_seconds}s</td>
                 <td className="px-4 py-3">
@@ -149,7 +153,7 @@ function AdminLoungesPage() {
 
       {editing && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
-          <div className="w-full max-w-2xl arena-card rounded-xl p-6 shadow-2xl">
+          <div className="max-h-[90vh] w-full max-w-2xl overflow-y-auto arena-card rounded-xl p-6 shadow-2xl">
             <div className="mb-4 flex items-center justify-between">
               <h3 className="font-display text-lg font-bold">
                 {editing.id ? "Edit lounge" : "New lounge"}
@@ -185,6 +189,13 @@ function AdminLoungesPage() {
                   onChange={(e) => setEditing({ ...editing, tagline: e.target.value })}
                 />
               </Field>
+              <div className="sm:col-span-2">
+                <ThumbnailUploader
+                  label="Lounge media"
+                  value={editing.cover_image_url ?? ""}
+                  onChange={(cover_image_url) => setEditing({ ...editing, cover_image_url })}
+                />
+              </div>
               <Field label="Vibe">
                 <input
                   className="input"
@@ -197,9 +208,7 @@ function AdminLoungesPage() {
                   type="number"
                   className="input"
                   value={editing.sort_order ?? 0}
-                  onChange={(e) =>
-                    setEditing({ ...editing, sort_order: Number(e.target.value) })
-                  }
+                  onChange={(e) => setEditing({ ...editing, sort_order: Number(e.target.value) })}
                 />
               </Field>
               <Field label="Entry fee (cents)">

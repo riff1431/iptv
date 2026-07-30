@@ -45,6 +45,8 @@ export type ArenaActionBarProps = {
   /** Match channel slots — shown in "Show Program" on match pages (where tvs is empty). */
   slots?: PublicMatchSlot[];
   onLeave?: () => void;
+  /** Context-specific label for the exit action. */
+  leaveLabel?: string;
   onToggleChat?: () => void;
   chatVisible?: boolean;
   /** Match id when the action bar is mounted from a match page. Used to attribute tips. */
@@ -59,12 +61,12 @@ export type ArenaActionBarProps = {
 
 const REACTIONS = ["🔥", "🎉", "😂", "😮", "👏", "❤️", "⚽", "🏀", "🏆", "💯"];
 
-
 export function ArenaActionBar({
   loungeId,
   tvs = [],
   slots = [],
   onLeave,
+  leaveLabel = "Leave Arena",
   onToggleChat,
   chatVisible = true,
   matchId = null,
@@ -128,7 +130,6 @@ export function ArenaActionBar({
     }
     setTipOpen(true);
   }
-
 
   // Per-toggle click debounce: collapse rapid double-clicks (< 350ms) into
   // one action so the mic/voice/all mute state doesn't flip twice and the
@@ -204,7 +205,6 @@ export function ArenaActionBar({
     }
   }
 
-
   const actions: Action[] = [
     {
       key: "reactions",
@@ -249,7 +249,7 @@ export function ArenaActionBar({
     },
     {
       key: "leave",
-      label: "Leave Arena",
+      label: leaveLabel,
       icon: LogOut,
       onClick: onLeave,
       danger: true,
@@ -298,11 +298,7 @@ export function ArenaActionBar({
 
             if (a.key === "reactions") {
               return (
-                <Popover
-                  key={a.key}
-                  open={reactionsOpen}
-                  onOpenChange={setReactionsOpen}
-                >
+                <Popover key={a.key} open={reactionsOpen} onOpenChange={setReactionsOpen}>
                   <PopoverTrigger asChild>{button}</PopoverTrigger>
                   <PopoverContent
                     align="center"
@@ -333,11 +329,9 @@ export function ArenaActionBar({
           recipientUserId={hostUserId}
           recipientName={hostName?.trim() || "Match host"}
           matchId={matchId ?? undefined}
-          loungeId={matchId ? undefined : loungeId ?? undefined}
+          loungeId={matchId ? undefined : (loungeId ?? undefined)}
         />
       )}
-
-
 
       <Sheet open={programOpen} onOpenChange={setProgramOpen}>
         <SheetContent
@@ -404,9 +398,7 @@ export function ArenaActionBar({
                   </div>
                   <span
                     className={`ml-auto rounded px-1.5 py-0.5 text-[9px] font-bold uppercase ${
-                      s.enabled
-                        ? "bg-success/15 text-success"
-                        : "bg-muted text-muted-foreground"
+                      s.enabled ? "bg-success/15 text-success" : "bg-muted text-muted-foreground"
                     }`}
                   >
                     {s.enabled ? "On" : "Off"}

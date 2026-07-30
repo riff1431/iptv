@@ -65,3 +65,25 @@ describe("ArenaHeader – How to Play dialog integration", () => {
 
   });
 });
+
+describe("ArenaHeader – compact toolbar variant", () => {
+  it("renders the provided title + leading node and drops the hero brand", () => {
+    renderWithClient(
+      <ArenaHeader
+        liveGames={3}
+        viewers={500}
+        title="Lakers vs Celtics"
+        leading={<a href="/arena">Back</a>}
+      />,
+    );
+
+    // Page name + back button are rendered.
+    expect(screen.getByText(/Lakers vs Celtics/i)).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: /back/i })).toBeInTheDocument();
+    // The big "Sports Arena" hero title is gone in compact mode.
+    expect(screen.queryByText(/^Sports Arena$/)).toBeNull();
+    // Live stats still render with the passed counts.
+    expect(screen.getByText(/3 Games Live/i)).toBeInTheDocument();
+    expect(screen.getByText(/500/)).toBeInTheDocument();
+  });
+});

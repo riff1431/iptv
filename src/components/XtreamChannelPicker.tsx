@@ -52,6 +52,7 @@ export function XtreamChannelPicker({
   const [loading, setLoading] = useState(false);
   const [channels, setChannels] = useState<IptvChannelDTO[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const [catalogRetryNonce, setCatalogRetryNonce] = useState(0);
   const [q, setQ] = useState("");
   const [group, setGroup] = useState("");
 
@@ -118,7 +119,7 @@ export function XtreamChannelPicker({
     return () => {
       cancelled = true;
     };
-  }, [open, tvId, fetchChannels]);
+  }, [open, tvId, fetchChannels, catalogRetryNonce]);
 
   // Resolve preview URL whenever the selection changes.
   useEffect(() => {
@@ -445,7 +446,17 @@ export function XtreamChannelPicker({
                 Fetching channels from provider…
               </div>
             ) : error ? (
-              <div className="p-8 text-sm text-destructive">{error}</div>
+              <div className="flex h-full flex-col items-center justify-center gap-3 p-8 text-center">
+                <div className="text-sm text-destructive">{error}</div>
+                <Button
+                  size="sm"
+                  variant="arenaOutline"
+                  onClick={() => setCatalogRetryNonce((value) => value + 1)}
+                >
+                  <RotateCw className="mr-1 h-3.5 w-3.5" />
+                  Retry provider
+                </Button>
+              </div>
             ) : filtered.length === 0 ? (
               <div className="p-8 text-center text-sm text-muted-foreground">
                 No channels match your search.

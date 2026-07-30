@@ -26,6 +26,7 @@ const UPSTREAM_UAS = [
   "TiviMate/4.7.0 (Linux;Android 12) ExoPlayer",
 ] as const;
 const UPSTREAM_UA = UPSTREAM_UAS[0];
+const JSON_FETCH_TIMEOUT_MS = 15_000;
 
 // ---------- Safe debug logging ----------
 
@@ -97,20 +98,36 @@ function logUpstream(
 }
 
 async function fetchJson(url: string, init?: RequestInit) {
-  const res = await fetch(url, {
-    ...init,
-    redirect: "follow",
-    headers: {
-      Accept: "application/json",
-      "User-Agent": UPSTREAM_UA,
-      ...(init?.headers ?? {}),
-    },
-  });
-  if (!res.ok) {
-    logUpstream("fetchJson", url, res, { snippet: await safeBodySnippet(res) });
-    throw new Error(`Upstream ${res.status} ${res.statusText}`);
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), JSON_FETCH_TIMEOUT_MS);
+  const abortFromCaller = () => controller.abort();
+  init?.signal?.addEventListener("abort", abortFromCaller, { once: true });
+
+  try {
+    const res = await fetch(url, {
+      ...init,
+      signal: controller.signal,
+      redirect: "follow",
+      headers: {
+        Accept: "application/json",
+        "User-Agent": UPSTREAM_UA,
+        ...(init?.headers ?? {}),
+      },
+    });
+    if (!res.ok) {
+      logUpstream("fetchJson", url, res, { snippet: await safeBodySnippet(res) });
+      throw new Error(`Upstream ${res.status} ${res.statusText}`);
+    }
+    return await res.json();
+  } catch (error) {
+    if ((error as { name?: string } | null)?.name === "AbortError") {
+      throw new Error(`IPTV provider timed out after ${JSON_FETCH_TIMEOUT_MS / 1000}s`);
+    }
+    throw error;
+  } finally {
+    clearTimeout(timer);
+    init?.signal?.removeEventListener("abort", abortFromCaller);
   }
-  return res.json();
 }
 
 // ---------- Xtream Codes ----------

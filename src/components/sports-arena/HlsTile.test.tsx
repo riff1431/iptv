@@ -90,18 +90,12 @@ describe("HlsTile — SportImage selection", () => {
 
   it("falls back to channelName when sport is not provided", () => {
     render(<HlsTile {...baseProps} channelName="Soccer Channel" />);
-    expect(screen.getByTestId("sport-image").getAttribute("data-sport")).toBe(
-      "Soccer Channel",
-    );
+    expect(screen.getByTestId("sport-image").getAttribute("data-sport")).toBe("Soccer Channel");
   });
 
   it("prefers explicit sport over channelName", () => {
-    render(
-      <HlsTile {...baseProps} sport="UFC" channelName="ESPN" />,
-    );
-    expect(screen.getByTestId("sport-image").getAttribute("data-sport")).toBe(
-      "UFC",
-    );
+    render(<HlsTile {...baseProps} sport="UFC" channelName="ESPN" />);
+    expect(screen.getByTestId("sport-image").getAttribute("data-sport")).toBe("UFC");
   });
 
   it("does not render a backdrop when neither sport nor channelName is set", () => {
@@ -110,13 +104,7 @@ describe("HlsTile — SportImage selection", () => {
   });
 
   it("uses a descriptive alt including matchup when both are set", () => {
-    render(
-      <HlsTile
-        {...baseProps}
-        sport="NBA"
-        matchup="Lakers vs Celtics"
-      />,
-    );
+    render(<HlsTile {...baseProps} sport="NBA" matchup="Lakers vs Celtics" />);
     expect(screen.getByTestId("sport-image").getAttribute("data-alt")).toBe(
       "NBA: Lakers vs Celtics backdrop image",
     );
@@ -124,9 +112,7 @@ describe("HlsTile — SportImage selection", () => {
 
   it("uses a sport-only alt when there is no matchup", () => {
     render(<HlsTile {...baseProps} sport="NHL" />);
-    expect(screen.getByTestId("sport-image").getAttribute("data-alt")).toBe(
-      "NHL backdrop image",
-    );
+    expect(screen.getByTestId("sport-image").getAttribute("data-alt")).toBe("NHL backdrop image");
   });
 });
 
@@ -169,5 +155,23 @@ describe("HlsTile — backdrop visibility across states", () => {
     expect(label).toContain("UFC");
     expect(label).toContain("Main Card — UFC 312");
     expect(label).toContain("offline");
+  });
+});
+describe("HlsTile — lounge TV identity", () => {
+  afterEach(cleanup);
+
+  it("shows the actual selected channel instead of stale sport and matchup metadata", () => {
+    render(
+      <HlsTile
+        {...baseProps}
+        slot={1}
+        channelName="PRIME: NBA"
+        sport="Soccer"
+        matchup="Man City vs Arsenal"
+      />,
+    );
+
+    expect(screen.getByText("TV 1 · PRIME: NBA")).toBeTruthy();
+    expect(screen.queryByText("Man City vs Arsenal")).toBeNull();
   });
 });

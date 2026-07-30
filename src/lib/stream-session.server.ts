@@ -7,9 +7,18 @@
 //
 // Cross-isolate sharing is out of scope for this pass (see plan §6).
 
-import { resolveStreamUrl, xtreamUpstreamUrl, type IptvCredentials } from "@/lib/iptv-client.server";
+import {
+  resolveStreamUrl,
+  xtreamUpstreamUrl,
+  type IptvCredentials,
+} from "@/lib/iptv-client.server";
 import { decryptSecret } from "@/lib/iptv-crypto.server";
 import { rewritePlaylist } from "@/lib/iptv-proxy.server";
+import {
+  getXtreamPlaylistError,
+  IPTV_UPSTREAM_HEADERS,
+  isUsablePlaylistResponse,
+} from "@/lib/iptv-upstream.server";
 
 type PlaylistEntry = {
   fetchedAt: number;
@@ -122,13 +131,15 @@ export async function getSharedPlaylist(
           ? xtreamUpstreamUrl(creds, tv.selected_channel_id!)
           : resolveStreamUrl(creds, tv.selected_channel_id!, tv.current_stream_url ?? null);
       const upstream = await fetch(upstreamUrl, {
-        headers: { "User-Agent": "VLC/3.0" },
+        headers: IPTV_UPSTREAM_HEADERS,
       });
-      if (!upstream.ok) {
-        throw new Error(`Upstream ${upstream.status}`);
-      }
       const text = await upstream.text();
-      const rewritten = rewritePlaylist(text, tv.id, upstreamUrl, segmentProxyPath);
+      const xtreamError = getXtreamPlaylistError(upstream.status, text);
+      if (xtreamError) throw new Error(xtreamError);
+      if (!isUsablePlaylistResponse(upstream.status, text)) {
+        throw new Error(`Upstream ${upstream.status}: invalid HLS manifest`);
+      }
+      const rewritten = rewritePlaylist(text, tv.id, upstream.url || upstreamUrl, segmentProxyPath);
       const entry: PlaylistEntry = {
         fetchedAt: Date.now(),
         upstreamUrl,
@@ -168,9 +179,12 @@ export async function getSharedSegment(
   if (inflight) return inflight;
 
   const p = (async (): Promise<SegmentEntry> => {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 10_000);
     try {
       const upstream = await fetch(upstreamUrl, {
-        headers: { "User-Agent": "VLC/3.0" },
+        headers: IPTV_UPSTREAM_HEADERS,
+        signal: controller.signal,
       });
       if (!upstream.ok) throw new Error(`Upstream ${upstream.status}`);
       const buf = new Uint8Array(await upstream.arrayBuffer());
@@ -187,6 +201,7 @@ export async function getSharedSegment(
       segmentCache.set(key, entry);
       return entry;
     } finally {
+      clearTimeout(timer);
       segmentInflight.delete(key);
     }
   })();

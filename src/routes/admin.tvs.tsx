@@ -39,6 +39,10 @@ import {
 } from "@/components/admin/AdminStates";
 import { StreamControl } from "@/components/admin/StreamControl";
 import { testIptvConnection } from "@/lib/iptv-admin.functions";
+import {
+  getSelectedChannelSourceLabel,
+  getTvConfigurationStatus,
+} from "@/lib/tv-configuration-status";
 import { Building2 } from "lucide-react";
 
 type ConnType = "xtream" | "m3u" | "hls";
@@ -591,12 +595,11 @@ function TvConfigCard({
     }
   }
 
-  const status = tv?.status ?? "unconfigured";
+  const status = getTvConfigurationStatus(tv);
   const statusColors: Record<string, string> = {
-    online: "bg-success/15 text-success",
+    configured: "bg-success/15 text-success",
+    disabled: "bg-warning/15 text-warning",
     unconfigured: "bg-arena-panel-2 text-muted-foreground",
-    error: "bg-destructive/15 text-destructive",
-    testing: "bg-warning/15 text-warning",
   };
 
   return (
@@ -887,9 +890,11 @@ function TvConfigCard({
                 {form.selected_channel_name || "No channel selected"}
               </div>
               <div className="truncate text-xs text-muted-foreground">
-                {form.selected_channel_id
-                  ? `${form.selected_channel_id}${form.current_stream_url ? " · stream ready" : " · no stream"}`
-                  : "Pick from the global provider or type an Xtream channel below"}
+                {getSelectedChannelSourceLabel({
+                  channelId: form.selected_channel_id,
+                  connectionType: form.connection_type,
+                  streamUrl: form.current_stream_url,
+                })}
               </div>
             </div>
             <Button size="sm" variant="arenaOutline" onClick={() => setPickerOpen(true)}>

@@ -13,7 +13,6 @@ import {
   AlertTriangle,
   ShieldAlert,
   ShieldOff,
-  Trophy,
   Radio,
   Wallet,
   History,
@@ -27,7 +26,6 @@ import { requireAdminRoute } from "@/lib/admin-guard";
 const adminNav: Array<{
   to:
     | "/admin"
-    | "/admin/arena"
     | "/admin/lounges"
     | "/admin/tvs"
     | "/admin/iptv-provider"
@@ -51,7 +49,6 @@ const adminNav: Array<{
   exact?: boolean;
 }> = [
   { to: "/admin", label: "Overview", icon: BarChart3, exact: true },
-  { to: "/admin/arena", label: "Arena", icon: Trophy },
   { to: "/admin/lounges", label: "Lounges", icon: Building2 },
   { to: "/admin/tvs", label: "TVs & IPTV", icon: Tv },
   { to: "/admin/iptv-provider", label: "IPTV Provider", icon: Radio },

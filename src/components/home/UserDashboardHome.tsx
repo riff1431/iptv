@@ -6,8 +6,7 @@ import { Users, Tv as TvIcon, Play, Compass, Ticket, Crown, Sparkles } from "luc
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/hooks/useAuth";
 import { useVipStatus, vipStatusQueryKey } from "@/hooks/useVipStatus";
-import { publicMatchesQuery } from "@/lib/matches.public.functions";
-import { publicLoungesQuery } from "@/lib/lounges.public.functions";
+import { publicLoungesQuery, type PublicLounge } from "@/lib/lounges.public.functions";
 import { upgradeUserVip } from "@/lib/wallet.functions";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
@@ -16,11 +15,41 @@ import sportNba from "@/assets/pgx/sport-nba.jpg";
 import sportSoccer from "@/assets/pgx/sport-soccer.jpg";
 import sportNhl from "@/assets/pgx/sport-nhl.jpg";
 
+const loungeFallbackImages = [sportNba, sportSoccer, sportNhl];
+
+function primaryLoungeTv(lounge: PublicLounge) {
+  return lounge.tvs[0] ?? null;
+}
+
+function loungeTitle(lounge: PublicLounge) {
+  return lounge.match?.title?.trim() || primaryLoungeTv(lounge)?.matchup?.trim() || lounge.name;
+}
+
+function loungeSport(lounge: PublicLounge) {
+  return lounge.match?.sport?.trim() || primaryLoungeTv(lounge)?.sport?.trim() || lounge.vibe;
+}
+
+function loungeImage(lounge: PublicLounge, index = 0) {
+  return (
+    lounge.coverImageUrl ||
+    lounge.match?.thumbnailUrl ||
+    lounge.tvs.find((tv) => tv.channel_logo)?.channel_logo ||
+    loungeFallbackImages[index % loungeFallbackImages.length]
+  );
+}
+
+function isLoungeLive(lounge: PublicLounge) {
+  const status = lounge.match?.status;
+  return (
+    status === "live" ||
+    status === "halftime" ||
+    ((!status || status === "off") && lounge.tvs.length > 0)
+  );
+}
 export default function UserDashboardHome() {
   const { user } = useAuth();
   const qc = useQueryClient();
   const { data: vipStatus, isLoading: vipStatusLoading } = useVipStatus(user?.id);
-  const { data: dbMatches = [] } = useQuery(publicMatchesQuery());
   const { data: dbLounges = [] } = useQuery(publicLoungesQuery());
 
   const [trendingTab, setTrendingTab] = useState<"popular" | "new">("popular");
@@ -45,16 +74,16 @@ export default function UserDashboardHome() {
     },
   });
 
-  const { data: reminderMatchIds = [] } = useQuery({
-    queryKey: ["match-reminders", user?.id],
+  const { data: reminderLoungeIds = [] } = useQuery({
+    queryKey: ["lounge-reminders", user?.id],
     enabled: Boolean(user?.id),
     queryFn: async () => {
       const { data, error } = await supabase
-        .from("match_reminders")
-        .select("match_id")
+        .from("lounge_reminders")
+        .select("lounge_id")
         .eq("user_id", user!.id);
       if (error) throw error;
-      return (data ?? []).map((row) => row.match_id);
+      return (data ?? []).map((row) => row.lounge_id);
     },
   });
 
@@ -80,29 +109,29 @@ export default function UserDashboardHome() {
     },
   });
 
-  const reminderSet = useMemo(() => new Set(reminderMatchIds), [reminderMatchIds]);
+  const reminderSet = useMemo(() => new Set(reminderLoungeIds), [reminderLoungeIds]);
   const toggleReminderMutation = useMutation({
-    mutationFn: async (matchId: string) => {
+    mutationFn: async (loungeId: string) => {
       if (!user) throw new Error("Sign in to manage reminders.");
-      if (reminderSet.has(matchId)) {
+      if (reminderSet.has(loungeId)) {
         const { error } = await supabase
-          .from("match_reminders")
+          .from("lounge_reminders")
           .delete()
           .eq("user_id", user.id)
-          .eq("match_id", matchId);
+          .eq("lounge_id", loungeId);
         if (error) throw error;
         return { enabled: false };
       }
       const { error } = await supabase
-        .from("match_reminders")
-        .insert({ user_id: user.id, match_id: matchId });
+        .from("lounge_reminders")
+        .insert({ user_id: user.id, lounge_id: loungeId });
       if (error) throw error;
       return { enabled: true };
     },
     onSuccess: (result) => {
-      void qc.invalidateQueries({ queryKey: ["match-reminders", user?.id] });
+      void qc.invalidateQueries({ queryKey: ["lounge-reminders", user?.id] });
       toast.success(
-        result.enabled ? "We will remind you when this match starts." : "Match reminder removed.",
+        result.enabled ? "We will remind you when this lounge starts." : "Lounge reminder removed.",
       );
     },
     onError: (error: Error) => toast.error(error.message),
@@ -112,40 +141,50 @@ export default function UserDashboardHome() {
     user?.user_metadata?.display_name || user?.email?.split("@")[0] || "Demo Viewer";
   const isVip = vipStatus?.isVip === true;
 
-  // 1. Extract live and upcoming matches
-  const liveMatches = useMemo(() => dbMatches.filter((m) => m.status === "live"), [dbMatches]);
-  const upcomingMatches = useMemo(
-    () => dbMatches.filter((m) => m.status === "scheduled"),
-    [dbMatches],
+  // Lounge/TV configuration is the single source of truth for dashboard content.
+  const liveLounges = useMemo(() => dbLounges.filter(isLoungeLive), [dbLounges]);
+  const upcomingLounges = useMemo(
+    () => dbLounges.filter((lounge) => lounge.match?.status === "scheduled"),
+    [dbLounges],
   );
 
-  // 2. Featured Banner Match
-  const featuredMatch = useMemo(() => {
-    return liveMatches[0] || upcomingMatches[0] || dbMatches[0] || null;
-  }, [liveMatches, upcomingMatches, dbMatches]);
+  const featuredLounge = useMemo(
+    () =>
+      liveLounges.find((lounge) => lounge.isFeatured) ||
+      liveLounges[0] ||
+      dbLounges.find((lounge) => lounge.isFeatured) ||
+      upcomingLounges[0] ||
+      dbLounges[0] ||
+      null,
+    [dbLounges, liveLounges, upcomingLounges],
+  );
 
-  const primaryMatchId = featuredMatch?.id ?? "";
+  const scheduleItems = useMemo(
+    () =>
+      upcomingLounges.slice(0, 5).map((lounge) => {
+        const startsAt = lounge.match?.startsAt;
+        const time = startsAt
+          ? `${new Date(startsAt).toLocaleTimeString("en-US", {
+              hour: "numeric",
+              minute: "2-digit",
+            })} ${new Date(startsAt).toLocaleDateString("en-US", {
+              month: "short",
+              day: "numeric",
+            })}`
+          : "Upcoming";
+        return {
+          id: lounge.id,
+          slug: lounge.slug,
+          time,
+          title: loungeTitle(lounge),
+          lounge: lounge.name,
+          fee: `$${(lounge.entryFeeCents / 100).toFixed(2)}`,
+        };
+      }),
+    [upcomingLounges],
+  );
 
-  // 3. Upcoming Schedule list
-  const scheduleItems = useMemo(() => {
-    const items = upcomingMatches.slice(0, 5);
-    return items.map((m) => {
-      const timeStr = m.startsAt
-        ? new Date(m.startsAt).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" }) +
-          " " +
-          new Date(m.startsAt).toLocaleDateString("en-US", { month: "short", day: "numeric" })
-        : "Upcoming";
-      return {
-        id: m.id,
-        time: timeStr,
-        match: m.title,
-        league: m.sport || "Sports",
-        fee: `$${(m.entryFeeCents / 100).toFixed(2)}`,
-      };
-    });
-  }, [upcomingMatches]);
-
-  // 4. Community members (public profile fields only)
+  // Community members (public profile fields only)
   const topFans = useMemo(() => {
     return [...dbProfiles]
       .sort((a, b) => a.display_name.localeCompare(b.display_name))
@@ -162,55 +201,56 @@ export default function UserDashboardHome() {
       });
   }, [dbProfiles]);
 
-  // 5. Live Lobbies list
-  const liveNowCards = useMemo(() => {
-    const list = liveMatches.slice(0, 3);
-    const sportsPics = [sportNba, sportSoccer, sportNhl];
-    return list.map((m, i) => ({
-      id: m.id,
-      tv: m.slots.find((slot) => slot.enabled)?.channelName ?? `TV ${i + 1}`,
-      title: m.title,
-      league: m.sport || "Lounge",
-      viewers: m.viewerCount,
-      fee: `$${(m.entryFeeCents / 100).toFixed(2)}`,
-      img: m.thumbnailUrl || sportsPics[i % sportsPics.length],
-    }));
-  }, [liveMatches]);
+  const liveNowCards = useMemo(
+    () =>
+      liveLounges.slice(0, 3).map((lounge, index) => {
+        const tv = primaryLoungeTv(lounge);
+        return {
+          id: lounge.id,
+          slug: lounge.slug,
+          tv: tv?.display_name || (tv ? `TV ${tv.slot}` : lounge.vibe),
+          title: loungeTitle(lounge),
+          league: loungeSport(lounge) || lounge.name,
+          viewers: lounge.viewerCount,
+          fee: `$${(lounge.entryFeeCents / 100).toFixed(2)}`,
+          img: loungeImage(lounge, index),
+        };
+      }),
+    [liveLounges],
+  );
 
-  // 6. Real countdowns to upcoming matches
-  const countdownEvents = useMemo(() => {
-    const items = upcomingMatches.slice(0, 4);
-    return items.map((m) => {
-      const diffMs = m.startsAt ? new Date(m.startsAt).getTime() - currentTime : 0;
-      const totalSec = Math.max(0, Math.floor(diffMs / 1000));
-      const days = Math.floor(totalSec / 86400);
-      const hrs = Math.floor((totalSec % 86400) / 3600);
-      const min = Math.floor((totalSec % 3600) / 60);
+  const countdownEvents = useMemo(
+    () =>
+      upcomingLounges.slice(0, 4).map((lounge) => {
+        const startsAt = lounge.match?.startsAt;
+        const diffMs = startsAt ? new Date(startsAt).getTime() - currentTime : 0;
+        const totalSec = Math.max(0, Math.floor(diffMs / 1000));
+        const days = Math.floor(totalSec / 86400);
+        const hrs = Math.floor((totalSec % 86400) / 3600);
+        const min = Math.floor((totalSec % 3600) / 60);
 
-      const dStr = String(days).padStart(2, "0");
-      const hStr = String(hrs).padStart(2, "0");
-      const mStr = String(min).padStart(2, "0");
+        return {
+          id: lounge.id,
+          slug: lounge.slug,
+          title: loungeTitle(lounge).toUpperCase(),
+          date: startsAt
+            ? new Date(startsAt).toLocaleDateString("en-US", {
+                month: "short",
+                day: "numeric",
+                year: "numeric",
+              })
+            : "Upcoming",
+          days: String(days).padStart(2, "0"),
+          hrs: String(hrs).padStart(2, "0"),
+          min: String(min).padStart(2, "0"),
+        };
+      }),
+    [upcomingLounges, currentTime],
+  );
 
-      return {
-        id: m.id,
-        title: m.title.toUpperCase(),
-        date: m.startsAt
-          ? new Date(m.startsAt).toLocaleDateString("en-US", {
-              month: "short",
-              day: "numeric",
-              year: "numeric",
-            })
-          : "Upcoming",
-        days: dStr,
-        hrs: hStr,
-        min: mStr,
-      };
-    });
-  }, [upcomingMatches, currentTime]);
-
-  // 7. Trending and premium lounges (from DB)
+  // Trending and premium lounges (from DB)
   const regularLobbies = useMemo(() => {
-    const list = dbLounges
+    const list = [...dbLounges]
       .sort((a, b) =>
         trendingTab === "popular"
           ? b.viewerCount - a.viewerCount
@@ -242,36 +282,49 @@ export default function UserDashboardHome() {
     }));
   }, [dbLounges]);
 
-  // Favorite teams extracted from DB matches
+  // Teams are derived only from lounge-level match metadata and configured TVs.
   const favoriteTeams = useMemo(() => {
-    const teams = [];
-    for (const m of dbMatches) {
-      if (m.homeLabel)
-        teams.push({
-          name: m.homeLabel,
-          league: m.sport || "Sports",
-          img: m.thumbnailUrl || sportSoccer,
-        });
-      if (m.awayLabel)
-        teams.push({
-          name: m.awayLabel,
-          league: m.sport || "Sports",
-          img: m.thumbnailUrl || sportSoccer,
-        });
+    const teams = new Map<
+      string,
+      {
+        name: string;
+        league: string;
+        img: string;
+        live: boolean;
+        viewers: number;
+        time: string | null;
+      }
+    >();
+
+    const addTeam = (lounge: PublicLounge, name: string | null, league: string, img: string) => {
+      const cleanName = name?.trim();
+      if (!cleanName || teams.has(cleanName)) return;
+      teams.set(cleanName, {
+        name: cleanName,
+        league,
+        img,
+        live: isLoungeLive(lounge),
+        viewers: lounge.viewerCount,
+        time: lounge.match?.startsAt ?? null,
+      });
+    };
+
+    for (const lounge of dbLounges) {
+      const image = loungeImage(lounge);
+      if (lounge.match) {
+        const league = lounge.match.sport || lounge.vibe;
+        addTeam(lounge, lounge.match.homeLabel, league, image);
+        addTeam(lounge, lounge.match.awayLabel, league, image);
+      }
+      for (const tv of lounge.tvs) {
+        const league = tv.sport || lounge.vibe;
+        addTeam(lounge, tv.home_label, league, tv.channel_logo || image);
+        addTeam(lounge, tv.away_label, league, tv.channel_logo || image);
+      }
     }
-    return teams.slice(0, 4).map((t) => ({
-      name: t.name,
-      league: t.league,
-      img: t.img,
-      live: liveMatches.some((match) => [match.homeLabel, match.awayLabel].includes(t.name)),
-      viewers:
-        dbMatches.find((match) => [match.homeLabel, match.awayLabel].includes(t.name))
-          ?.viewerCount ?? 0,
-      time:
-        dbMatches.find((match) => [match.homeLabel, match.awayLabel].includes(t.name))?.startsAt ??
-        null,
-    }));
-  }, [dbMatches, liveMatches]);
+
+    return Array.from(teams.values()).slice(0, 4);
+  }, [dbLounges]);
 
   return (
     <div className="space-y-6">
@@ -329,11 +382,11 @@ export default function UserDashboardHome() {
         </div>
 
         {/* Featured Live Match Banner (Center - 6 Cols) */}
-        {featuredMatch ? (
+        {featuredLounge ? (
           <div className="lg:col-span-6 relative overflow-hidden rounded-2xl border border-slate-800 bg-slate-950 shadow-2xl group min-h-[220px] flex flex-col justify-end p-6">
             <img
-              src={featuredMatch.thumbnailUrl || sportSoccer}
-              alt="Featured Match"
+              src={loungeImage(featuredLounge)}
+              alt="Featured Lounge"
               className="absolute inset-0 h-full w-full object-cover opacity-40 transition-transform duration-700 group-hover:scale-105"
             />
             <div className="absolute inset-0 bg-gradient-to-t from-slate-950 via-slate-950/60 to-transparent" />
@@ -341,25 +394,25 @@ export default function UserDashboardHome() {
             <div className="absolute top-4 left-1/2 -translate-x-1/2 z-10">
               <span className="inline-flex items-center gap-1.5 rounded-full bg-rose-600/90 px-3 py-1 text-[10px] font-black uppercase tracking-wider text-white shadow-lg backdrop-blur-md">
                 <span className="h-2 w-2 rounded-full bg-white animate-ping" />
-                {featuredMatch.status === "live" ? "LIVE NOW" : "UPCOMING"}
+                {isLoungeLive(featuredLounge) ? "LIVE NOW" : "UPCOMING"}
               </span>
             </div>
 
             <div className="relative z-10 text-center space-y-2">
               <h2 className="text-2xl sm:text-3xl font-black text-white tracking-tight">
-                {featuredMatch.title}
+                {loungeTitle(featuredLounge)}
               </h2>
               <div className="text-xs font-bold text-slate-300 uppercase">
-                {featuredMatch.sport || "Match"}
+                {loungeSport(featuredLounge) || "Lounge"}
               </div>
               <div className="flex items-center justify-center gap-1 text-xs text-pink-400 font-semibold">
                 <Users className="h-3.5 w-3.5" />
-                <span>{featuredMatch.viewerCount} viewers today</span>
+                <span>{featuredLounge.viewerCount} viewers today</span>
               </div>
 
               <Link
-                to="/arena/$matchId"
-                params={{ matchId: primaryMatchId }}
+                to="/lounge/$loungeId"
+                params={{ loungeId: featuredLounge.slug }}
                 className="inline-block pt-2"
               >
                 <Button className="h-11 px-8 rounded-xl font-extrabold text-xs uppercase tracking-wider bg-gradient-to-r from-pink-600 via-purple-600 to-indigo-600 hover:from-pink-500 hover:to-indigo-500 text-white shadow-lg shadow-pink-500/25 transition-all">
@@ -371,7 +424,7 @@ export default function UserDashboardHome() {
           </div>
         ) : (
           <div className="lg:col-span-6 relative overflow-hidden rounded-2xl border border-slate-800 bg-slate-950 shadow-2xl min-h-[220px] flex items-center justify-center p-6 text-slate-500">
-            No matches loaded in database.
+            No lounges are currently available.
           </div>
         )}
 
@@ -393,9 +446,9 @@ export default function UserDashboardHome() {
             {scheduleItems.map((item) => (
               <div key={item.id} className="py-2.5 flex items-center justify-between text-xs gap-2">
                 <div className="min-w-0">
-                  <div className="font-extrabold text-white truncate">{item.match}</div>
+                  <div className="font-extrabold text-white truncate">{item.title}</div>
                   <div className="text-[10px] text-slate-400 truncate">
-                    {item.time} • {item.league}
+                    {item.time} • {item.lounge}
                   </div>
                 </div>
                 <span className="rounded bg-pink-500/10 border border-pink-500/30 px-2 py-0.5 text-[10px] font-extrabold text-pink-400 shrink-0">
@@ -405,7 +458,7 @@ export default function UserDashboardHome() {
             ))}
             {scheduleItems.length === 0 && (
               <div className="py-8 text-center text-xs text-slate-500">
-                No scheduled matches in the database.
+                No scheduled lounges in the database.
               </div>
             )}
           </div>
@@ -417,13 +470,13 @@ export default function UserDashboardHome() {
         {/* Continue Watching (3 Cols) */}
         <div className="lg:col-span-3 flex flex-col rounded-2xl border border-slate-800 bg-slate-900/80 p-4 shadow-xl backdrop-blur-md">
           <h2 className="text-xs font-extrabold uppercase tracking-wider text-white pb-3 border-b border-slate-800/80">
-            Featured Match
+            Featured Lounge
           </h2>
-          {featuredMatch ? (
+          {featuredLounge ? (
             <div className="pt-3 space-y-3 flex-1 flex flex-col justify-between">
               <div className="relative aspect-video w-full overflow-hidden rounded-xl bg-slate-950 border border-slate-800">
                 <img
-                  src={featuredMatch.thumbnailUrl || sportSoccer}
+                  src={loungeImage(featuredLounge)}
                   alt=""
                   className="h-full w-full object-cover opacity-70"
                 />
@@ -434,12 +487,14 @@ export default function UserDashboardHome() {
 
               <div className="flex items-center justify-between gap-2">
                 <div className="min-w-0">
-                  <div className="text-xs font-bold text-white truncate">{featuredMatch.title}</div>
+                  <div className="text-xs font-bold text-white truncate">
+                    {loungeTitle(featuredLounge)}
+                  </div>
                   <div className="text-[10px] text-slate-400 truncate">
-                    {featuredMatch.sport || "Lounge"}
+                    {loungeSport(featuredLounge) || "Lounge"}
                   </div>
                 </div>
-                <Link to="/arena/$matchId" params={{ matchId: primaryMatchId }}>
+                <Link to="/lounge/$loungeId" params={{ loungeId: featuredLounge.slug }}>
                   <Button
                     size="sm"
                     className="h-7 px-2.5 text-[10px] font-bold bg-pink-600 hover:bg-pink-500 text-white rounded-lg shrink-0"
@@ -451,7 +506,7 @@ export default function UserDashboardHome() {
             </div>
           ) : (
             <div className="pt-8 text-center text-xs text-slate-500">
-              No featured match available.
+              No featured lounge available.
             </div>
           )}
         </div>
@@ -469,8 +524,8 @@ export default function UserDashboardHome() {
             {liveNowCards.map((card) => (
               <Link
                 key={card.id}
-                to="/arena/$matchId"
-                params={{ matchId: card.id }}
+                to="/lounge/$loungeId"
+                params={{ loungeId: card.slug }}
                 className="group relative flex flex-col overflow-hidden rounded-xl border border-slate-800 bg-slate-950 transition-all hover:border-pink-500/50"
               >
                 <div className="relative h-28 w-full overflow-hidden">
@@ -499,7 +554,7 @@ export default function UserDashboardHome() {
             ))}
             {liveNowCards.length === 0 && (
               <div className="col-span-full py-8 text-center text-xs text-slate-500">
-                No live matches in the database.
+                No live lounges in the database.
               </div>
             )}
           </div>
@@ -705,7 +760,7 @@ export default function UserDashboardHome() {
         <div className="lg:col-span-8 flex flex-col rounded-2xl border border-slate-800 bg-slate-900/80 p-4 shadow-xl backdrop-blur-md">
           <div className="flex items-center justify-between pb-3 border-b border-slate-800/80">
             <h2 className="text-xs font-extrabold uppercase tracking-wider text-white">
-              Teams in Active Matches
+              Teams in Live Lounges
             </h2>
           </div>
 
@@ -731,7 +786,7 @@ export default function UserDashboardHome() {
             ))}
             {favoriteTeams.length === 0 && (
               <div className="col-span-full py-8 text-center text-xs text-slate-500">
-                No teams are attached to active matches.
+                No teams are configured in active lounges.
               </div>
             )}
           </div>

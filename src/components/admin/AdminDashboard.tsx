@@ -512,7 +512,7 @@ export function AdminDashboard() {
           title="Recent Lobbies"
           action={
             <Link
-              to="/admin/arena"
+              to="/admin/lounges"
               className="text-xs font-semibold text-arena-violet hover:text-arena-pink"
             >
               View All
@@ -571,7 +571,7 @@ export function AdminDashboard() {
           }
           action={
             <Link
-              to="/admin/arena"
+              to="/admin/lounges"
               className="text-xs font-semibold text-arena-violet hover:text-arena-pink"
             >
               View All
@@ -780,11 +780,11 @@ export function AdminDashboard() {
           Manage Lounges
         </Link>
         <Link
-          to="/admin/arena"
+          to="/admin/tvs"
           className="rounded-xl border border-arena-border bg-arena-panel px-4 py-3 text-xs font-semibold uppercase tracking-wider text-white/80 transition hover:border-arena-pink/60 hover:text-white"
         >
           <Video className="mb-1.5 h-4 w-4 text-arena-pink" />
-          Manage Arena
+          Manage TVs &amp; IPTV
         </Link>
         <Link
           to="/admin/users"

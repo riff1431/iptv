@@ -16,9 +16,13 @@ describe("signed-in homepage data integrity", () => {
     expect(home).not.toContain("Lakers vs Celtics");
   });
 
-  it("persists match reminders instead of keeping them in component-only state", () => {
-    expect(home).toContain('.from("match_reminders")');
-    expect(home).not.toContain("notifiedEvents");
+  it("uses Lounge and TV data without any Arena match query", () => {
+    expect(home).toContain("publicLoungesQuery");
+    expect(home).toContain('.from("lounge_reminders")');
+    expect(home).toContain('to="/lounge/$loungeId"');
+    expect(home).not.toContain("publicMatchesQuery");
+    expect(home).not.toContain('.from("match_reminders")');
+    expect(home).not.toContain('to="/arena/$matchId"');
   });
 
   it("uses the canonical VIP query instead of auth metadata", () => {

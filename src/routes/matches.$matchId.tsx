@@ -241,8 +241,8 @@ function MatchDetailsPage() {
                     </Button>
                     {canManage && (
                       <Button asChild size="lg" variant="arenaOutline">
-                        <Link to="/admin/arena">
-                          <ExternalLink className="mr-1.5 h-4 w-4" /> Manage
+                        <Link to="/admin/tvs">
+                          <ExternalLink className="mr-1.5 h-4 w-4" /> Manage TV Channels
                         </Link>
                       </Button>
                     )}

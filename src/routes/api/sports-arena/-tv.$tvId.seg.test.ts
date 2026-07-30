@@ -52,14 +52,66 @@ function playlistUrl(host: string): string {
 
 describe("/seg — playlist retry budget", () => {
   it("returns 200 on first-attempt success (no retries)", async () => {
-    const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(
-      new Response("#EXTM3U\n#EXT-X-VERSION:3\n#EXT-X-ENDLIST\n", { status: 200 }),
-    );
+    const fetchSpy = vi
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValue(
+        new Response("#EXTM3U\n#EXT-X-VERSION:3\n#EXT-X-ENDLIST\n", { status: 200 }),
+      );
     const res = await handleSegRequest(makeRequest(playlistUrl("ok-host.test")), TV_ID);
+    expect(res.status).toBe(200);
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+    expect(fetchSpy).toHaveBeenCalledWith(
+      playlistUrl("ok-host.test"),
+      expect.objectContaining({
+        headers: expect.objectContaining({
+          "User-Agent": expect.stringContaining("Mozilla/5.0"),
+          Accept: "*/*",
+        }),
+      }),
+    );
+  });
+
+  it("accepts a valid Xtream manifest returned with HTTP 458", async () => {
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response("#EXTM3U\n#EXT-X-VERSION:3\n#EXT-X-ENDLIST\n", {
+        status: 458,
+      }),
+    );
+    const res = await handleSegRequest(makeRequest(playlistUrl("458-manifest.test")), TV_ID);
     expect(res.status).toBe(200);
     expect(fetchSpy).toHaveBeenCalledTimes(1);
   });
 
+  it("reports an empty Xtream HTTP 458 as a provider connection limit", async () => {
+    const fetchSpy = vi
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValue(new Response("", { status: 458 }));
+    const res = await handleSegRequest(makeRequest(playlistUrl("458-empty.test")), TV_ID);
+    expect(res.status).toBe(429);
+    expect(await res.text()).toMatch(/connection limit/i);
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it("fetches media segments with the same browser-shaped headers as Arena", async () => {
+    const segment = "http://segment-host.test/live/chunk-1.ts";
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(new Uint8Array([0x47, 0x40, 0x00]), {
+        status: 200,
+        headers: { "content-type": "video/mp2t" },
+      }),
+    );
+    const res = await handleSegRequest(makeRequest(segment), TV_ID);
+    expect(res.status).toBe(200);
+    expect(fetchSpy).toHaveBeenCalledWith(
+      segment,
+      expect.objectContaining({
+        headers: expect.objectContaining({
+          "User-Agent": expect.stringContaining("Mozilla/5.0"),
+          Accept: "*/*",
+        }),
+      }),
+    );
+  });
   it("retries on 5xx and returns 404 after budget is exhausted", async () => {
     const fetchSpy = vi
       .spyOn(globalThis, "fetch")
@@ -91,20 +143,18 @@ describe("/seg — playlist retry budget", () => {
   it("retries on upstream timeout (AbortError) and returns 404 after budget", async () => {
     // Simulate an upstream that never resolves within SEG_UPSTREAM_TIMEOUT_MS.
     // The handler passes an AbortSignal — reject with AbortError when it fires.
-    const fetchSpy = vi
-      .spyOn(globalThis, "fetch")
-      .mockImplementation((_input, init) => {
-        return new Promise((_resolve, reject) => {
-          const signal = (init as RequestInit | undefined)?.signal;
-          if (signal) {
-            signal.addEventListener("abort", () => {
-              const err = new Error("aborted");
-              (err as Error & { name: string }).name = "AbortError";
-              reject(err);
-            });
-          }
-        });
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockImplementation((_input, init) => {
+      return new Promise((_resolve, reject) => {
+        const signal = (init as RequestInit | undefined)?.signal;
+        if (signal) {
+          signal.addEventListener("abort", () => {
+            const err = new Error("aborted");
+            (err as Error & { name: string }).name = "AbortError";
+            reject(err);
+          });
+        }
       });
+    });
     const res = await handleSegRequest(makeRequest(playlistUrl("timeout-host.test")), TV_ID);
     expect(res.status).toBe(404);
     expect(fetchSpy).toHaveBeenCalledTimes(3);
