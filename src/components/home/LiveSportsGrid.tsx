@@ -1,12 +1,6 @@
-import { useMemo } from "react";
 import { Link } from "@tanstack/react-router";
-import { useSuspenseQuery } from "@tanstack/react-query";
 import { Radio, Users, ChevronRight, Play } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { publicLoungesQuery } from "@/lib/lounges.public.functions";
-import { publicMatchesQuery } from "@/lib/matches.public.functions";
-import { sportImage } from "@/lib/sport-image";
-import { usePublicLoungesRealtime } from "@/hooks/usePublicLoungesRealtime";
 import creator1 from "@/assets/pgx/creator-1.jpg";
 import creator2 from "@/assets/pgx/creator-2.jpg";
 import creator3 from "@/assets/pgx/creator-3.jpg";
@@ -32,7 +26,7 @@ const DEFAULT_ITEMS: LiveCardItem[] = [
   {
     id: "demo-nba",
     title: "Lakers vs Celtics",
-    creatorName: "LunaLove",
+    creatorName: "Administrator",
     viewers: 12480,
     sportImg: "/images/sport-nba.jpg",
     creatorImg: creator1,
@@ -40,7 +34,7 @@ const DEFAULT_ITEMS: LiveCardItem[] = [
   {
     id: "demo-nhl",
     title: "Rangers vs Bruins",
-    creatorName: "BellaBanks",
+    creatorName: "Administrator",
     viewers: 9820,
     sportImg: "/images/sport-nhl.jpg",
     creatorImg: creator2,
@@ -48,7 +42,7 @@ const DEFAULT_ITEMS: LiveCardItem[] = [
   {
     id: "demo-fifa",
     title: "Real Madrid vs Barcelona",
-    creatorName: "VickyVibes",
+    creatorName: "Administrator",
     viewers: 18540,
     sportImg: "/images/sport-soccer.jpg",
     creatorImg: creator3,
@@ -56,46 +50,15 @@ const DEFAULT_ITEMS: LiveCardItem[] = [
   {
     id: "demo-cricket",
     title: "India vs Pakistan",
-    creatorName: "AaliyahXO",
+    creatorName: "Administrator",
     viewers: 24180,
     sportImg: "/images/sport-cricket.jpg",
     creatorImg: creator4,
   },
 ];
 
-type Props = {
-  items?: LiveCardItem[];
-};
-
-export default function LiveSportsGrid({ items }: Props) {
-  // Live-sync: when an admin saves a TV channel, refetch public lounges so the
-  // grid reflects it within ~1s without a page refresh.
-  usePublicLoungesRealtime();
-  const { data: lounges } = useSuspenseQuery(publicLoungesQuery());
-  const { data: matches } = useSuspenseQuery(publicMatchesQuery());
-
-  // Derive cards from real lounges that have at least one enabled TV. `tvs`
-  // is already server-filtered to enabled=true and sorted by slot, so tvs[0]
-  // is TV1. Falls back to DEFAULT_ITEMS (marketing mock-ups) when nothing is
-  // live, and to an explicit `items` prop when a caller overrides.
-  const liveItems: LiveCardItem[] = useMemo(() => {
-    return (lounges ?? [])
-      .filter((l) => l.tvs.length > 0)
-      .sort((a, b) => b.viewerCount - a.viewerCount)
-      .slice(0, 4)
-      .map((l) => {
-        const tv = l.tvs[0];
-        return {
-          id: l.slug || l.id,
-          title: tv.matchup || l.name,
-          viewers: l.viewerCount,
-          sportImg: tv.channel_logo ?? sportImage(tv.sport),
-        } satisfies LiveCardItem;
-      });
-  }, [lounges]);
-
-  const displayCards: LiveCardItem[] =
-    items && items.length > 0 ? items : liveItems.length > 0 ? liveItems : DEFAULT_ITEMS;
+export default function LiveSportsGrid() {
+  const displayCards = DEFAULT_ITEMS;
 
   return (
     <section className="rounded-2xl border border-slate-800/90 bg-slate-950/80 p-5 md:p-6 shadow-2xl backdrop-blur-md">
@@ -114,7 +77,7 @@ export default function LiveSportsGrid({ items }: Props) {
             size="sm"
             className="text-xs font-bold text-slate-300 hover:text-white hover:bg-slate-800/80 rounded-lg"
           >
-            View All Lobbies
+            View All
             <ChevronRight className="ml-1 h-4 w-4" />
           </Button>
         </Link>
@@ -122,18 +85,12 @@ export default function LiveSportsGrid({ items }: Props) {
 
       {/* 4 Cards Grid */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 pt-4">
-        {displayCards.map((card, idx) => {
-          const loungeTarget =
-            card.id.startsWith("demo-")
-              ? lounges?.[idx % Math.max(lounges.length, 1)]?.slug || "sports-central"
-              : card.id;
-          return (
-            <Link
-              key={card.id}
-              to="/lounge/$loungeId"
-              params={{ loungeId: loungeTarget }}
-              className="group relative flex flex-col overflow-hidden rounded-2xl border border-slate-800/80 bg-slate-900/90 transition-all duration-300 hover:border-pink-500/70 hover:shadow-xl hover:shadow-pink-500/15"
-            >
+        {displayCards.map((card) => (
+          <Link
+            key={card.id}
+            to="/lobby"
+            className="group relative flex flex-col overflow-hidden rounded-2xl border border-slate-800/80 bg-slate-900/90 transition-all duration-300 hover:border-pink-500/70 hover:shadow-xl hover:shadow-pink-500/15"
+          >
             {/* Thumbnail Image Container */}
             <div className="relative aspect-[4/3] w-full overflow-hidden bg-slate-950">
               <img
@@ -189,8 +146,7 @@ export default function LiveSportsGrid({ items }: Props) {
               </div>
             </div>
           </Link>
-          );
-        })}
+        ))}
       </div>
     </section>
   );
