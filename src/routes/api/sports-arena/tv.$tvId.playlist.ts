@@ -51,6 +51,29 @@ export const Route = createFileRoute("/api/sports-arena/tv/$tvId/playlist")({
           return new Response("TV not configured", { status: 409 });
         }
 
+        if (process.env.DISABLE_IPTV_PROXY === "true") {
+          const { credsFor } = await import("@/lib/stream-session.server");
+          const { xtreamUpstreamUrl, resolveStreamUrl } = await import("@/lib/iptv-client.server");
+          try {
+            const creds = await credsFor(tv);
+            const upstreamUrl =
+              creds.connection_type === "xtream"
+                ? xtreamUpstreamUrl(creds, tv.selected_channel_id)
+                : resolveStreamUrl(creds, tv.selected_channel_id, tv.current_stream_url ?? null);
+            
+            return new Response(null, {
+              status: 302,
+              headers: {
+                "Location": upstreamUrl,
+                "Cache-Control": "no-store",
+              },
+            });
+          } catch (e) {
+            const msg = e instanceof Error ? e.message : "Redirect error";
+            return new Response(msg, { status: 500 });
+          }
+        }
+
         // Respect admin lifecycle: refuse when the shared session is stopped.
         const { data: session } = await supabaseAdmin
           .from("tv_stream_sessions")

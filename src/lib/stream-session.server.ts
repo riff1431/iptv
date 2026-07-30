@@ -55,7 +55,7 @@ export type TvRowForStream = {
   current_stream_url?: string | null;
 };
 
-async function credsFor(tv: TvRowForStream): Promise<IptvCredentials> {
+export async function credsFor(tv: TvRowForStream): Promise<IptvCredentials> {
   if (!tv.server_url) {
     const { getCachedGlobalIptvSettings } = await import("@/lib/iptv-settings-cache.server");
     const global = await getCachedGlobalIptvSettings();
