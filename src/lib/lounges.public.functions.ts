@@ -217,13 +217,15 @@ export const getPublicLoungeBySlug = createServerFn({ method: "POST" })
   .validator((d) => z.object({ slug: z.string().min(1).max(120) }).parse(d))
   .handler(async ({ data }): Promise<PublicLounge | null> => {
     const supa = serverPublic();
-    const { data: l } = await supa
+    const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(data.slug);
+    const query = supa
       .from("lounges")
       .select("*")
-      .eq("slug", data.slug)
       .eq("is_active", true)
-      .eq("is_private", false)
-      .maybeSingle();
+      .eq("is_private", false);
+    const { data: l } = isUuid
+      ? await query.or(`slug.eq.${data.slug},id.eq.${data.slug}`).maybeSingle()
+      : await query.eq("slug", data.slug).maybeSingle();
     if (!l) return null;
     const { data: tvs } = await supa
       .from("tvs")

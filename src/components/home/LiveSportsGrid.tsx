@@ -79,21 +79,20 @@ export default function LiveSportsGrid({ items }: Props) {
   // is TV1. Falls back to DEFAULT_ITEMS (marketing mock-ups) when nothing is
   // live, and to an explicit `items` prop when a caller overrides.
   const liveItems: LiveCardItem[] = useMemo(() => {
-    const matchFallback = (i: number) => matches?.[i % Math.max(matches.length, 1)]?.id ?? "";
     return (lounges ?? [])
       .filter((l) => l.tvs.length > 0)
       .sort((a, b) => b.viewerCount - a.viewerCount)
       .slice(0, 4)
-      .map((l, i) => {
+      .map((l) => {
         const tv = l.tvs[0];
         return {
-          id: matchFallback(i) || l.id,
+          id: l.slug || l.id,
           title: tv.matchup || l.name,
           viewers: l.viewerCount,
           sportImg: tv.channel_logo ?? sportImage(tv.sport),
         } satisfies LiveCardItem;
       });
-  }, [lounges, matches]);
+  }, [lounges]);
 
   const displayCards: LiveCardItem[] =
     items && items.length > 0 ? items : liveItems.length > 0 ? liveItems : DEFAULT_ITEMS;
@@ -109,13 +108,13 @@ export default function LiveSportsGrid({ items }: Props) {
           </h2>
         </div>
 
-        <Link to="/arena">
+        <Link to="/lobby">
           <Button
             variant="ghost"
             size="sm"
             className="text-xs font-bold text-slate-300 hover:text-white hover:bg-slate-800/80 rounded-lg"
           >
-            View All
+            View All Lobbies
             <ChevronRight className="ml-1 h-4 w-4" />
           </Button>
         </Link>
@@ -123,13 +122,18 @@ export default function LiveSportsGrid({ items }: Props) {
 
       {/* 4 Cards Grid */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 pt-4">
-        {displayCards.map((card) => (
-          <Link
-            key={card.id}
-            to="/arena/$matchId"
-            params={{ matchId: card.id }}
-            className="group relative flex flex-col overflow-hidden rounded-2xl border border-slate-800/80 bg-slate-900/90 transition-all duration-300 hover:border-pink-500/70 hover:shadow-xl hover:shadow-pink-500/15"
-          >
+        {displayCards.map((card, idx) => {
+          const loungeTarget =
+            card.id.startsWith("demo-")
+              ? lounges?.[idx % Math.max(lounges.length, 1)]?.slug || "sports-central"
+              : card.id;
+          return (
+            <Link
+              key={card.id}
+              to="/lounge/$loungeId"
+              params={{ loungeId: loungeTarget }}
+              className="group relative flex flex-col overflow-hidden rounded-2xl border border-slate-800/80 bg-slate-900/90 transition-all duration-300 hover:border-pink-500/70 hover:shadow-xl hover:shadow-pink-500/15"
+            >
             {/* Thumbnail Image Container */}
             <div className="relative aspect-[4/3] w-full overflow-hidden bg-slate-950">
               <img
@@ -185,7 +189,8 @@ export default function LiveSportsGrid({ items }: Props) {
               </div>
             </div>
           </Link>
-        ))}
+          );
+        })}
       </div>
     </section>
   );

@@ -48,6 +48,7 @@ type SportCategory = "all" | "football" | "basketball" | "mma" | "hockey" | "oth
  *  static marketing fallback (which renders the `thumbnails` collage instead). */
 type RegularLobbyCard = {
   id: string;
+  slug?: string;
   title: string;
   subtitle: string;
   viewers: string;
@@ -61,6 +62,7 @@ type RegularLobbyCard = {
 
 type CreatorLobbyCard = {
   id: string;
+  slug?: string;
   creatorName: string;
   subtitle: string;
   viewers: string;
@@ -188,6 +190,7 @@ export function DedicatedLobbyPage() {
       if (regularDb.length > 0) {
         return regularDb.map((l, i) => ({
           id: l.id,
+          slug: l.slug || l.id,
           title: l.name,
           subtitle: l.tagline || "All your favorite games live",
           viewers: `${(l.viewerCount / 1000).toFixed(1)}K`,
@@ -211,6 +214,7 @@ export function DedicatedLobbyPage() {
       if (creatorDb.length > 0) {
         return creatorDb.map((l, i) => ({
           id: l.id,
+          slug: l.slug || l.id,
           creatorName: l.name,
           subtitle: l.tagline || "Chill vibes & big plays",
           viewers: `${(l.viewerCount / 1000).toFixed(1)}K`,
@@ -387,8 +391,8 @@ export function DedicatedLobbyPage() {
                 {filteredRegular.map((lobby) => (
                   <Link
                     key={lobby.id}
-                    to="/arena/$matchId"
-                    params={{ matchId: lobby.matchId }}
+                    to="/lounge/$loungeId"
+                    params={{ loungeId: lobby.slug || lobby.id }}
                     className="group flex flex-col overflow-hidden rounded-2xl border border-slate-800 bg-slate-900/90 transition-all duration-300 hover:border-cyan-500/50 hover:shadow-xl hover:shadow-cyan-500/10"
                   >
                     {/* Top Badges & 4 Thumbnail Grid */}
@@ -460,8 +464,8 @@ export function DedicatedLobbyPage() {
                 {filteredCreator.map((lobby) => (
                   <Link
                     key={lobby.id}
-                    to="/arena/$matchId"
-                    params={{ matchId: lobby.matchId }}
+                    to="/lounge/$loungeId"
+                    params={{ loungeId: lobby.slug || lobby.id }}
                     className="group flex flex-col overflow-hidden rounded-2xl border border-slate-800 bg-slate-900/90 transition-all duration-300 hover:border-pink-500/50 hover:shadow-xl hover:shadow-pink-500/10"
                   >
                     {/* Top Badges & 4 Thumbnail Grid */}
