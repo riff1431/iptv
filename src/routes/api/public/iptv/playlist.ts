@@ -1,4 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
+import { customFetch } from "@/lib/iptv-upstream.server";
 
 const CORS: Record<string, string> = {
   "Access-Control-Allow-Origin": "*",
@@ -514,7 +515,10 @@ export const Route = createFileRoute("/api/public/iptv/playlist")({
           if (ifNoneMatch) upstreamHeaders["If-None-Match"] = ifNoneMatch;
           if (ifModifiedSince) upstreamHeaders["If-Modified-Since"] = ifModifiedSince;
 
-          const upstream = await fetchWithRedirects(v.url, upstreamHeaders, controller.signal);
+          const upstream = await customFetch(v.url.toString(), {
+            headers: upstreamHeaders,
+            signal: controller.signal,
+          });
 
           const cacheHeaders: Record<string, string> = {
             // Live HLS manifests must never be cached — hls.js polls them on a

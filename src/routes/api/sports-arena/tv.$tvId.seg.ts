@@ -7,6 +7,7 @@ import {
   getXtreamPlaylistError,
   IPTV_UPSTREAM_HEADERS,
   isUsablePlaylistResponse,
+  customFetch,
 } from "@/lib/iptv-upstream.server";
 
 // ---- Circuit breaker (per-tvId, in-memory) ----------------------------------
@@ -209,7 +210,7 @@ export async function handleSegRequest(request: Request, tvId: string): Promise<
       const ac = new AbortController();
       const timer = setTimeout(() => ac.abort(), UPSTREAM_TIMEOUT_MS);
       try {
-        const upstream = await fetch(upstreamUrl, {
+        const upstream = await customFetch(upstreamUrl, {
           headers: IPTV_UPSTREAM_HEADERS,
           signal: ac.signal,
         });

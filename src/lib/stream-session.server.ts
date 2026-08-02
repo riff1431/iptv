@@ -18,6 +18,7 @@ import {
   getXtreamPlaylistError,
   IPTV_UPSTREAM_HEADERS,
   isUsablePlaylistResponse,
+  customFetch,
 } from "@/lib/iptv-upstream.server";
 
 type PlaylistEntry = {
@@ -130,7 +131,7 @@ export async function getSharedPlaylist(
         creds.connection_type === "xtream"
           ? xtreamUpstreamUrl(creds, tv.selected_channel_id!)
           : resolveStreamUrl(creds, tv.selected_channel_id!, tv.current_stream_url ?? null);
-      const upstream = await fetch(upstreamUrl, {
+      const upstream = await customFetch(upstreamUrl, {
         headers: IPTV_UPSTREAM_HEADERS,
       });
       const text = await upstream.text();
@@ -182,7 +183,7 @@ export async function getSharedSegment(
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), 10_000);
     try {
-      const upstream = await fetch(upstreamUrl, {
+      const upstream = await customFetch(upstreamUrl, {
         headers: IPTV_UPSTREAM_HEADERS,
         signal: controller.signal,
       });
