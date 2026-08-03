@@ -21,8 +21,8 @@ const ALLOWED_REQUEST_HEADERS = new Set([
   "user-agent",
 ]);
 
-const httpAgent = new http.Agent({ keepAlive: true, maxSockets: 32, maxFreeSockets: 8 });
-const httpsAgent = new https.Agent({ keepAlive: true, maxSockets: 32, maxFreeSockets: 8 });
+const httpAgent = new http.Agent({ keepAlive: false, maxSockets: 32, maxFreeSockets: 8 });
+const httpsAgent = new https.Agent({ keepAlive: false, maxSockets: 32, maxFreeSockets: 8 });
 
 function envInt(name: string, fallback: number, min: number, max: number): number {
   const value = Number(process.env[name]);
@@ -86,6 +86,9 @@ export function isUsablePlaylistResponse(status: number, body: string): boolean 
 }
 
 export function getXtreamPlaylistError(status: number, body: string): string | null {
+  if (status === 403 && !isHlsManifestBody(body)) {
+    return "Xtream provider returned HTTP 403 Forbidden. The account connection limit may be exceeded.";
+  }
   if (status !== 458 || isHlsManifestBody(body)) return null;
   return "Xtream provider rejected the stream (HTTP 458). The account connection limit may already be in use.";
 }
@@ -99,6 +102,7 @@ function safeRequestHeaders(
     if (ALLOWED_REQUEST_HEADERS.has(key.toLowerCase())) output[key] = value;
   }
   output.Host = target.host;
+  output.Connection = "close"; // Force close to prevent leaking active connections to IPTV providers
   return output;
 }
 
