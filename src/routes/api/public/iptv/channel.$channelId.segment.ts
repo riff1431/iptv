@@ -5,6 +5,7 @@ import {
   rewriteNestedRelayPlaylist,
 } from "@/lib/global-iptv-relay.server";
 import { openRelayUrl } from "@/lib/iptv-relay-token.server";
+import { redactIptvText } from "@/lib/iptv-diagnostics.server";
 
 function scopeFor(channelId: string): string {
   return `global-xtream:${channelId}`;
@@ -95,7 +96,7 @@ export async function handleGlobalRelaySegment(
     if (relayError instanceof IptvRelayUpstreamError) {
       return errorResponse(relayError.status, relayError.message);
     }
-    console.error("[iptv-relay] resource failed", relayError);
+    console.error("[iptv-relay] resource failed", redactIptvText(relayError));
     return errorResponse(502, "IPTV relay could not load the upstream resource");
   }
 }

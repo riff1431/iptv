@@ -1,24 +1,25 @@
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 
-type Handler = (event: string, data: any) => void;
+type Handler = (event: string, data: unknown) => void;
+type MockConfig = { xhrSetup?: (xhr: XMLHttpRequest) => void };
 
 const { instances } = vi.hoisted(() => ({
   instances: [] as Array<{
-    config: { xhrSetup?: (xhr: XMLHttpRequest) => void };
+    config: MockConfig;
     handlers: Record<string, Handler[]>;
     loadSource: ReturnType<typeof vi.fn>;
     attachMedia: ReturnType<typeof vi.fn>;
     startLoad: ReturnType<typeof vi.fn>;
     recoverMediaError: ReturnType<typeof vi.fn>;
     destroy: ReturnType<typeof vi.fn>;
-    emit: (event: string, data?: any) => void;
+    emit: (event: string, data?: unknown) => void;
   }>,
 }));
 
 vi.mock("hls.js", async () => {
   const { vi: vitest } = await import("vitest");
-  const Events = { MANIFEST_PARSED: "manifest", ERROR: "error" };
+  const Events = { MANIFEST_PARSED: "manifest", FRAG_BUFFERED: "fragBuffered", ERROR: "error" };
   const ErrorTypes = { NETWORK_ERROR: "network", MEDIA_ERROR: "media" };
 
   class MockHls {
@@ -29,7 +30,7 @@ vi.mock("hls.js", async () => {
     recoverMediaError = vitest.fn();
     destroy = vitest.fn();
 
-    constructor(public config: { xhrSetup?: (xhr: XMLHttpRequest) => void }) {
+    constructor(public config: MockConfig) {
       instances.push(this);
     }
 
@@ -37,14 +38,19 @@ vi.mock("hls.js", async () => {
       (this.handlers[event] ||= []).push(handler);
     }
 
-    emit(event: string, data: any = {}) {
+    emit(event: string, data: unknown = {}) {
       for (const handler of this.handlers[event] ?? []) handler(event, data);
     }
   }
 
-  (MockHls as any).isSupported = () => true;
-  (MockHls as any).Events = Events;
-  (MockHls as any).ErrorTypes = ErrorTypes;
+  const StaticMock = MockHls as unknown as {
+    isSupported: () => boolean;
+    Events: typeof Events;
+    ErrorTypes: typeof ErrorTypes;
+  };
+  StaticMock.isSupported = () => true;
+  StaticMock.Events = Events;
+  StaticMock.ErrorTypes = ErrorTypes;
   return { default: MockHls };
 });
 
@@ -126,7 +132,7 @@ describe("HlsTile lounge playback lifecycle", () => {
     expect(instances).toHaveLength(1);
 
     await act(async () => {
-      await vi.advanceTimersByTimeAsync(15_000);
+      await vi.advanceTimersByTimeAsync(30_000);
     });
 
     expect(screen.getByText("Stream is taking too long")).toBeTruthy();

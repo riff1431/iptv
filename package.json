@@ -14,6 +14,7 @@
     "build": "vite build",
     "build:dev": "vite build --mode development",
     "preview": "vite preview",
+    "diagnose:iptv": "node scripts/diagnose-iptv-stream.mjs",
     "lint": "eslint .",
     "format": "prettier --write .",
     "visual:admin": "python3 e2e/visual/snapshot-admin.py",

@@ -4,6 +4,25 @@ import { Maximize2, Volume2, VolumeX, RotateCcw, WifiOff } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { SportImage } from "@/components/SportImage";
 
+const stableLoadPolicy = (firstByteMs: number, loadMs: number) => ({
+  default: {
+    maxTimeToFirstByteMs: firstByteMs,
+    maxLoadTimeMs: loadMs,
+    timeoutRetry: {
+      maxNumRetry: 2,
+      retryDelayMs: 500,
+      maxRetryDelayMs: 4_000,
+      backoff: "exponential" as const,
+    },
+    errorRetry: {
+      maxNumRetry: 2,
+      retryDelayMs: 1_000,
+      maxRetryDelayMs: 8_000,
+      backoff: "exponential" as const,
+    },
+  },
+});
+
 export type HlsTileProps = {
   tvId: string;
   slot: number;
@@ -55,6 +74,10 @@ export function HlsTile({
     let hlsAutoRetries = 0;
     let warmupTimer: ReturnType<typeof setTimeout> | null = null;
     let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+    let bufferingTimer: ReturnType<typeof setTimeout> | null = null;
+    let watchdogTimer: ReturnType<typeof setInterval> | null = null;
+    let lastProgressAt = Date.now();
+    let stableSince = Date.now();
 
     const clearWarmup = () => {
       if (warmupTimer !== null) {
@@ -76,9 +99,9 @@ export function HlsTile({
       warmupTimer = setTimeout(() => {
         fail(
           "Stream is taking too long",
-          "No playable video frame arrived within 15 seconds. Retry or check the channel in Admin TVs.",
+          "No playable video frame arrived within 30 seconds. Retry or check the channel in Admin TVs.",
         );
-      }, 15_000);
+      }, 30_000);
     };
     const onCanPlay = () => {
       if (cancelled) return;
@@ -88,17 +111,36 @@ export function HlsTile({
     const onPlaying = () => {
       if (cancelled) return;
       clearWarmup();
+      if (bufferingTimer !== null) {
+        clearTimeout(bufferingTimer);
+        bufferingTimer = null;
+      }
       setPhase("playing");
       setError(null);
       setErrorDetail(null);
       setLoading(false);
       setPlaying(true);
       setBuffering(false);
+      lastProgressAt = Date.now();
     };
     const onWaiting = () => {
-      if (!cancelled) setBuffering(true);
+      if (cancelled || bufferingTimer) return;
+      bufferingTimer = setTimeout(() => {
+        bufferingTimer = null;
+        if (!cancelled && !video.paused) setBuffering(true);
+      }, 400);
+    };
+    const onProgress = () => {
+      lastProgressAt = Date.now();
+      if (bufferingTimer !== null) {
+        clearTimeout(bufferingTimer);
+        bufferingTimer = null;
+      }
+      setBuffering(false);
+      if (Date.now() - stableSince >= 30_000) hlsAutoRetries = 0;
     };
     const onMediaError = () => {
+      if (hlsRef.current) return;
       fail(
         "Stream failed to play",
         video.error?.message || "The media source could not be decoded.",
@@ -109,6 +151,7 @@ export function HlsTile({
     video.addEventListener("playing", onPlaying);
     video.addEventListener("waiting", onWaiting);
     video.addEventListener("stalled", onWaiting);
+    video.addEventListener("timeupdate", onProgress);
     video.addEventListener("error", onMediaError);
 
     async function boot() {
@@ -132,15 +175,22 @@ export function HlsTile({
 
       if (Hls.isSupported()) {
         const hls = new Hls({
-          xhrSetup: (xhr) => {
-            xhr.setRequestHeader("Authorization", `Bearer ${token}`);
+          xhrSetup: (xhr, rawUrl) => {
+            const target = new URL(rawUrl, window.location.href);
+            if (target.origin === window.location.origin) {
+              xhr.setRequestHeader("Authorization", `Bearer ${token}`);
+            }
           },
           liveDurationInfinity: true,
           lowLatencyMode: false,
           backBufferLength: 30,
-          maxBufferLength: 20,
-          liveSyncDurationCount: 3,
-          liveMaxLatencyDurationCount: 6,
+          maxBufferLength: 60,
+          maxMaxBufferLength: 120,
+          liveSyncDurationCount: 6,
+          liveMaxLatencyDurationCount: 12,
+          manifestLoadPolicy: stableLoadPolicy(10_000, 30_000),
+          playlistLoadPolicy: stableLoadPolicy(10_000, 30_000),
+          fragLoadPolicy: stableLoadPolicy(15_000, 120_000),
         });
         hlsRef.current = hls;
         // Match the proven Arena attachment sequence.
@@ -151,6 +201,7 @@ export function HlsTile({
           setPhase("manifest");
           void video.play().catch(() => {});
         });
+        hls.on(Hls.Events.FRAG_BUFFERED, onProgress);
         hls.on(Hls.Events.ERROR, (_evt, data) => {
           if (cancelled) return;
           const httpCode = data.response?.code;
@@ -170,11 +221,7 @@ export function HlsTile({
             return;
           }
 
-          if (!data.fatal) {
-            if (data.type === Hls.ErrorTypes.NETWORK_ERROR) hls.startLoad();
-            else if (data.type === Hls.ErrorTypes.MEDIA_ERROR) hls.recoverMediaError();
-            return;
-          }
+          if (!data.fatal) return;
 
           if (
             data.type === Hls.ErrorTypes.NETWORK_ERROR ||
@@ -182,7 +229,8 @@ export function HlsTile({
           ) {
             hlsAutoRetries += 1;
             if (hlsAutoRetries <= 3) {
-              setBuffering(true);
+              stableSince = Date.now();
+              onWaiting();
               setErrorDetail(
                 data.type === Hls.ErrorTypes.NETWORK_ERROR
                   ? "Reconnecting to the lounge stream…"
@@ -200,6 +248,20 @@ export function HlsTile({
             data.details || "The playlist loaded, but video segments could not be played.",
           );
         });
+        watchdogTimer = setInterval(() => {
+          if (cancelled || video.paused || Date.now() - lastProgressAt < 6_000) return;
+          if (video.seekable.length) {
+            const liveEdge = video.seekable.end(video.seekable.length - 1);
+            if (liveEdge - video.currentTime > 30) {
+              const safeTarget = hls.liveSyncPosition ?? liveEdge - 12;
+              video.currentTime = Math.max(
+                video.seekable.start(0),
+                Math.min(liveEdge - 2, safeTarget),
+              );
+            }
+          }
+          onWaiting();
+        }, 2_000);
       } else if (!video.canPlayType("application/vnd.apple.mpegurl")) {
         fail("HLS not supported in this browser");
       } else {
@@ -213,11 +275,14 @@ export function HlsTile({
     return () => {
       cancelled = true;
       clearWarmup();
+      if (bufferingTimer !== null) clearTimeout(bufferingTimer);
+      if (watchdogTimer !== null) clearInterval(watchdogTimer);
       if (reconnectTimer !== null) clearTimeout(reconnectTimer);
       video.removeEventListener("canplay", onCanPlay);
       video.removeEventListener("playing", onPlaying);
       video.removeEventListener("waiting", onWaiting);
       video.removeEventListener("stalled", onWaiting);
+      video.removeEventListener("timeupdate", onProgress);
       video.removeEventListener("error", onMediaError);
       hlsRef.current?.destroy();
       hlsRef.current = null;

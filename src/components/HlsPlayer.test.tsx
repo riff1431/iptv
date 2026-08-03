@@ -3,6 +3,7 @@ import { render, screen, cleanup, fireEvent, act } from "@testing-library/react"
 
 type Handler = (e: string, data: unknown) => void;
 interface MockHlsShape {
+  config: { xhrSetup?: (xhr: XMLHttpRequest, url: string) => Promise<void> | void };
   handlers: Record<string, Handler[]>;
   loadSource: ReturnType<typeof vi.fn>;
   attachMedia: ReturnType<typeof vi.fn>;
@@ -19,7 +20,9 @@ vi.mock("hls.js", async () => {
   const { vi: vitest } = await import("vitest");
   const Events = {
     MANIFEST_PARSED: "hlsManifestParsed",
+    LEVEL_SWITCHING: "hlsLevelSwitching",
     LEVEL_SWITCHED: "hlsLevelSwitched",
+    FRAG_BUFFERED: "hlsFragBuffered",
     ERROR: "hlsError",
   };
   const ErrorTypes = { NETWORK_ERROR: "networkError", MEDIA_ERROR: "mediaError" };
@@ -32,9 +35,11 @@ vi.mock("hls.js", async () => {
     startLoad = vitest.fn();
     recoverMediaError = vitest.fn();
     destroy = vitest.fn();
-    constructor() {
+    constructor(config: MockHlsShape["config"] = {}) {
+      this.config = config;
       instances.push(this);
     }
+    config: MockHlsShape["config"];
     on(event: string, cb: Handler) {
       (this.handlers[event] ||= []).push(cb);
     }
@@ -54,6 +59,14 @@ vi.mock("hls.js", async () => {
   Ctor.ErrorTypes = ErrorTypes;
   return { default: Ctor };
 });
+
+vi.mock("@/integrations/supabase/client", () => ({
+  supabase: {
+    auth: {
+      getSession: () => Promise.resolve({ data: { session: { access_token: "viewer-token" } } }),
+    },
+  },
+}));
 
 import { HlsPlayer } from "./HlsPlayer";
 
@@ -77,11 +90,13 @@ describe("HlsPlayer", () => {
     const hls = instances[0];
 
     act(() => {
-      hls.emit("hlsError", {
-        fatal: true,
-        type: "networkError",
-        details: "manifestLoadError",
-      });
+      for (let i = 0; i < 4; i += 1) {
+        hls.emit("hlsError", {
+          fatal: true,
+          type: "networkError",
+          details: "manifestLoadError",
+        });
+      }
     });
 
     expect(screen.getByText(/CORS/i)).toBeTruthy();
@@ -94,11 +109,13 @@ describe("HlsPlayer", () => {
   it("re-initialises the stream when Retry is clicked", () => {
     render(<HlsPlayer src={SRC} />);
     act(() => {
-      instances[0].emit("hlsError", {
-        fatal: true,
-        type: "networkError",
-        details: "manifestLoadError",
-      });
+      for (let i = 0; i < 4; i += 1) {
+        instances[0].emit("hlsError", {
+          fatal: true,
+          type: "networkError",
+          details: "manifestLoadError",
+        });
+      }
     });
 
     fireEvent.click(screen.getByRole("button", { name: /retry/i }));
@@ -109,5 +126,52 @@ describe("HlsPlayer", () => {
     expect(instances[1].loadSource).toHaveBeenCalledWith(SRC);
     // Back to loading state.
     expect(screen.getByText(/Loading stream/i)).toBeTruthy();
+  });
+
+  it("does not treat LEVEL_SWITCHING as actual buffering", () => {
+    render(<HlsPlayer src={SRC} />);
+    act(() => instances[0].emit("hlsLevelSwitching", { level: 1 }));
+    expect(screen.queryByText(/Buffering/i)).toBeNull();
+  });
+
+  it("debounces real waiting events and clears buffering on fragment progress", () => {
+    vi.useFakeTimers();
+    render(<HlsPlayer src={SRC} />);
+    const video = document.querySelector("video")!;
+    Object.defineProperty(video, "paused", { configurable: true, value: false });
+    fireEvent.waiting(video);
+    expect(screen.queryByText(/Buffering/i)).toBeNull();
+    act(() => vi.advanceTimersByTime(450));
+    expect(screen.getByText(/Buffering/i)).toBeTruthy();
+    act(() => instances[0].emit("hlsFragBuffered", {}));
+    expect(screen.queryByText(/Buffering/i)).toBeNull();
+    vi.useRealTimers();
+  });
+
+  it("destroys the prior HLS instance and listeners on a source change", () => {
+    const { rerender } = render(<HlsPlayer src={SRC} />);
+    const first = instances[0];
+    rerender(<HlsPlayer src="https://example.com/other.m3u8" />);
+    expect(first.destroy).toHaveBeenCalledTimes(1);
+    expect(instances).toHaveLength(2);
+    fireEvent.waiting(document.querySelector("video")!);
+    expect(first.handlers.hlsFragBuffered).toHaveLength(1);
+  });
+
+  it("attaches app authorization only to same-origin requests", async () => {
+    render(<HlsPlayer src={SRC} />);
+    const sameOriginHeader = vi.fn();
+    await instances[0].config.xhrSetup?.(
+      { setRequestHeader: sameOriginHeader } as unknown as XMLHttpRequest,
+      "/api/sports-arena/tv/tv-1/playlist",
+    );
+    expect(sameOriginHeader).toHaveBeenCalledWith("Authorization", "Bearer viewer-token");
+
+    const externalHeader = vi.fn();
+    await instances[0].config.xhrSetup?.(
+      { setRequestHeader: externalHeader } as unknown as XMLHttpRequest,
+      "https://provider.test/secret/stream.m3u8",
+    );
+    expect(externalHeader).not.toHaveBeenCalled();
   });
 });

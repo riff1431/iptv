@@ -3,6 +3,7 @@ import { IptvRelayUpstreamError, getSharedGlobalPlaylist } from "@/lib/global-ip
 import { xtreamUpstreamUrl } from "@/lib/iptv-client.server";
 import { getCachedGlobalIptvSettings } from "@/lib/iptv-settings-cache.server";
 import { verifyRelayAccess } from "@/lib/iptv-relay-token.server";
+import { redactIptvText } from "@/lib/iptv-diagnostics.server";
 
 function scopeFor(channelId: string): string {
   return `global-xtream:${channelId}`;
@@ -61,7 +62,7 @@ export async function handleGlobalRelayPlaylist(
     if (relayError instanceof IptvRelayUpstreamError) {
       return errorResponse(relayError.status, relayError.message);
     }
-    console.error("[iptv-relay] playlist failed", relayError);
+    console.error("[iptv-relay] playlist failed", redactIptvText(relayError));
     return errorResponse(502, "IPTV relay could not load the upstream playlist");
   }
 }

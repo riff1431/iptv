@@ -2,7 +2,14 @@
 // Credentials never leave the server — we hand the browser opaque, short-lived
 // URLs pointing back to our own segment proxy, which then fetches upstream.
 
-import { createHmac, timingSafeEqual } from "crypto";
+import {
+  createCipheriv,
+  createDecipheriv,
+  createHash,
+  createHmac,
+  randomBytes,
+  timingSafeEqual,
+} from "crypto";
 
 const TOKEN_TTL_SECONDS = 60 * 10; // 10 minutes
 
@@ -26,10 +33,18 @@ function fromB64url(input: string): Buffer {
   return Buffer.from(b64, "base64");
 }
 
+function encryptionKey(): Buffer {
+  return createHash("sha256").update(getKey()).digest();
+}
+
 /** Sign an upstream URL for `tvId`. Returns `?u=...&e=...&s=...`. */
 export function signSegmentUrl(tvId: string, upstreamUrl: string): string {
   const exp = Math.floor(Date.now() / 1000) + TOKEN_TTL_SECONDS;
-  const u = b64url(upstreamUrl);
+  const iv = randomBytes(12);
+  const cipher = createCipheriv("aes-256-gcm", encryptionKey(), iv);
+  cipher.setAAD(Buffer.from(`${tvId}.${exp}`));
+  const ciphertext = Buffer.concat([cipher.update(upstreamUrl, "utf8"), cipher.final()]);
+  const u = b64url(Buffer.concat([iv, cipher.getAuthTag(), ciphertext]));
   const payload = `${tvId}.${u}.${exp}`;
   const sig = b64url(createHmac("sha256", getKey()).update(payload).digest());
   return `u=${u}&e=${exp}&s=${sig}`;
@@ -45,14 +60,22 @@ export function verifySegmentToken(
   if (!u || !e || !s) return null;
   const exp = Number(e);
   if (!Number.isFinite(exp) || exp < Math.floor(Date.now() / 1000)) return null;
-  const expected = b64url(
-    createHmac("sha256", getKey()).update(`${tvId}.${u}.${exp}`).digest(),
-  );
+  const expected = b64url(createHmac("sha256", getKey()).update(`${tvId}.${u}.${exp}`).digest());
   const a = Buffer.from(expected);
   const b = Buffer.from(s);
   if (a.length !== b.length || !timingSafeEqual(a, b)) return null;
   try {
-    return fromB64url(u).toString("utf8");
+    const sealed = fromB64url(u);
+    if (sealed.byteLength < 29) return null;
+    const decipher = createDecipheriv("aes-256-gcm", encryptionKey(), sealed.subarray(0, 12));
+    decipher.setAAD(Buffer.from(`${tvId}.${exp}`));
+    decipher.setAuthTag(sealed.subarray(12, 28));
+    const plaintext = Buffer.concat([
+      decipher.update(sealed.subarray(28)),
+      decipher.final(),
+    ]).toString("utf8");
+    const parsed = new URL(plaintext);
+    return parsed.protocol === "http:" || parsed.protocol === "https:" ? plaintext : null;
   } catch {
     return null;
   }

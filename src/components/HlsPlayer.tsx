@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import Hls, { type ErrorData, type Level } from "hls.js";
+import { supabase } from "@/integrations/supabase/client";
 import {
   Loader2,
   Play,
@@ -20,6 +21,33 @@ type PlayerStatus =
   | { kind: "ready" }
   | { kind: "blocked" }
   | { kind: "error"; message: string };
+
+const stableLoadPolicy = (firstByteMs: number, loadMs: number) => ({
+  default: {
+    maxTimeToFirstByteMs: firstByteMs,
+    maxLoadTimeMs: loadMs,
+    timeoutRetry: {
+      maxNumRetry: 2,
+      retryDelayMs: 500,
+      maxRetryDelayMs: 4_000,
+      backoff: "exponential" as const,
+    },
+    errorRetry: {
+      maxNumRetry: 2,
+      retryDelayMs: 1_000,
+      maxRetryDelayMs: 8_000,
+      backoff: "exponential" as const,
+    },
+  },
+});
+
+async function attachSameOriginAuth(xhr: XMLHttpRequest, rawUrl: string): Promise<void> {
+  const target = new URL(rawUrl, window.location.href);
+  if (target.origin !== window.location.origin) return;
+  const { data } = await supabase.auth.getSession();
+  const token = data.session?.access_token;
+  if (token) xhr.setRequestHeader("Authorization", `Bearer ${token}`);
+}
 
 /**
  * IPTV-optimized HLS player. Uses hls.js with low-latency + tight live sync
@@ -97,12 +125,25 @@ export function HlsPlayer({
     video.load();
 
     let cancelled = false;
+    let bufferingTimer: ReturnType<typeof setTimeout> | null = null;
+    let watchdogTimer: ReturnType<typeof setInterval> | null = null;
+    let lastProgressAt = Date.now();
+    let stableSince = Date.now();
+    let recoveryAttempts: number[] = [];
+    let readyNotified = false;
     const isHls = /\.m3u8($|\?)/i.test(src);
 
     const markReady = () => {
       if (cancelled) return;
+      if (bufferingTimer) {
+        clearTimeout(bufferingTimer);
+        bufferingTimer = null;
+      }
       setStatus({ kind: "ready" });
-      onReady?.();
+      if (!readyNotified) {
+        readyNotified = true;
+        onReady?.();
+      }
     };
     const tryPlay = () => {
       if (pausedPrefRef.current) return; // user previously paused — keep paused across reloads
@@ -123,14 +164,28 @@ export function HlsPlayer({
     };
     const onPlaying = () => {
       markReady();
+      lastProgressAt = Date.now();
       setPlaying(true);
     };
     const onWaiting = () => {
-      if (!cancelled) setStatus({ kind: "buffering" });
+      if (cancelled || bufferingTimer) return;
+      bufferingTimer = setTimeout(() => {
+        bufferingTimer = null;
+        if (!cancelled && !video.paused) setStatus({ kind: "buffering" });
+      }, 400);
+    };
+    const onProgress = () => {
+      lastProgressAt = Date.now();
+      markReady();
+      if (Date.now() - stableSince >= 30_000) recoveryAttempts = [];
     };
     const onPause = () => setPlaying(false);
     const onMediaError = () => {
       if (cancelled) return;
+      // hls.js classifies and recovers MediaSource errors through its ERROR
+      // event. The native media error handler is only authoritative for the
+      // Safari/progressive fallback.
+      if (hlsRef.current) return;
       setStatus({
         kind: "error",
         message:
@@ -141,18 +196,24 @@ export function HlsPlayer({
     video.addEventListener("canplay", onCanPlay);
     video.addEventListener("playing", onPlaying);
     video.addEventListener("waiting", onWaiting);
+    video.addEventListener("stalled", onWaiting);
+    video.addEventListener("timeupdate", onProgress);
     video.addEventListener("pause", onPause);
     video.addEventListener("error", onMediaError);
 
     if (isHls && Hls.isSupported()) {
       const hls = new Hls({
         enableWorker: true,
-        // IPTV-friendly: prefer low latency, tight back-buffer.
-        lowLatencyMode: true,
+        lowLatencyMode: false,
         backBufferLength: 30,
-        maxBufferLength: 30,
-        liveSyncDurationCount: 3,
-        liveMaxLatencyDurationCount: 6,
+        maxBufferLength: 60,
+        maxMaxBufferLength: 120,
+        liveSyncDurationCount: 6,
+        liveMaxLatencyDurationCount: 12,
+        manifestLoadPolicy: stableLoadPolicy(10_000, 30_000),
+        playlistLoadPolicy: stableLoadPolicy(10_000, 30_000),
+        fragLoadPolicy: stableLoadPolicy(15_000, 120_000),
+        xhrSetup: attachSameOriginAuth,
       });
       hlsRef.current = hls;
 
@@ -160,20 +221,28 @@ export function HlsPlayer({
         setLevels(data.levels);
         tryPlay();
       });
-      hls.on(Hls.Events.LEVEL_SWITCHING, () => {
-        if (cancelled) return;
-        setStatus({ kind: "buffering" });
-      });
       hls.on(Hls.Events.LEVEL_SWITCHED, (_e, data) => {
         setCurrentLevel(data.level);
+      });
+      hls.on(Hls.Events.FRAG_BUFFERED, () => {
+        lastProgressAt = Date.now();
+        markReady();
       });
 
       hls.on(Hls.Events.ERROR, (_e, data: ErrorData) => {
         if (cancelled) return;
-        if (!data.fatal) {
-          // Non-fatal: try to recover network / media.
+        if (!data.fatal) return;
+        const now = Date.now();
+        recoveryAttempts = recoveryAttempts.filter((time) => now - time < 60_000);
+        if (
+          recoveryAttempts.length < 3 &&
+          (data.type === Hls.ErrorTypes.NETWORK_ERROR || data.type === Hls.ErrorTypes.MEDIA_ERROR)
+        ) {
+          recoveryAttempts.push(now);
+          stableSince = now;
+          onWaiting();
           if (data.type === Hls.ErrorTypes.NETWORK_ERROR) hls.startLoad();
-          else if (data.type === Hls.ErrorTypes.MEDIA_ERROR) hls.recoverMediaError();
+          else hls.recoverMediaError();
           return;
         }
         const isManifest =
@@ -190,20 +259,34 @@ export function HlsPlayer({
 
       hls.loadSource(src);
       hls.attachMedia(video);
+      watchdogTimer = setInterval(() => {
+        if (cancelled || video.paused || Date.now() - lastProgressAt < 6_000) return;
+        const ranges = video.seekable;
+        if (!ranges.length) return;
+        const liveEdge = ranges.end(ranges.length - 1);
+        if (liveEdge - video.currentTime > 30) {
+          const safeTarget = hls.liveSyncPosition ?? liveEdge - 12;
+          video.currentTime = Math.max(ranges.start(0), Math.min(liveEdge - 2, safeTarget));
+        }
+        onWaiting();
+      }, 2_000);
     } else {
       // Native HLS (Safari) or plain progressive URL.
       video.src = src;
     }
 
-    video.muted = true;
     video.playsInline = true;
     tryPlay();
 
     return () => {
       cancelled = true;
+      if (bufferingTimer) clearTimeout(bufferingTimer);
+      if (watchdogTimer) clearInterval(watchdogTimer);
       video.removeEventListener("canplay", onCanPlay);
       video.removeEventListener("playing", onPlaying);
       video.removeEventListener("waiting", onWaiting);
+      video.removeEventListener("stalled", onWaiting);
+      video.removeEventListener("timeupdate", onProgress);
       video.removeEventListener("pause", onPause);
       video.removeEventListener("error", onMediaError);
       hlsRef.current?.destroy();

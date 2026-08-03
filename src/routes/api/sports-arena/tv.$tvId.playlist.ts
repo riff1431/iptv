@@ -1,132 +1,237 @@
-// Playlist proxy: serves the shared per-TV rewritten playlist.
-// Every viewer request returns the same cached body within the TTL, so the
-// IPTV provider sees ~1 upstream poll per target-duration regardless of
-// viewer count. Refuses when the admin has stopped the stream.
-
+import { createHash } from "node:crypto";
 import { createFileRoute } from "@tanstack/react-router";
+import type { TvRowForStream } from "@/lib/stream-session.server";
+import {
+  iptvRequestId,
+  iptvResponseHeaders,
+  logIptvTiming,
+  redactIptvText,
+  upstreamHostname,
+} from "@/lib/iptv-diagnostics.server";
+
+type Timed<T> = { value: T; expiresAt: number };
+const authCache = new Map<string, Timed<true>>();
+const tvCache = new Map<string, Timed<TvRowForStream>>();
+const sessionCache = new Map<string, Timed<string | null>>();
+const successfulTelemetryAt = new Map<string, number>();
+const MAX_CACHE_ENTRIES = 500;
+
+function putBounded<K, V>(map: Map<K, V>, key: K, value: V): void {
+  map.delete(key);
+  map.set(key, value);
+  while (map.size > MAX_CACHE_ENTRIES) map.delete(map.keys().next().value as K);
+}
+
+function getFresh<K, V>(map: Map<K, Timed<V>>, key: K): V | undefined {
+  const entry = map.get(key);
+  if (!entry) return undefined;
+  if (entry.expiresAt <= Date.now()) {
+    map.delete(key);
+    return undefined;
+  }
+  map.delete(key);
+  map.set(key, entry);
+  return entry.value;
+}
+
+function safeErrorResponse(message: string, status: number, requestId: string): Response {
+  return new Response(message, {
+    status,
+    headers: { "Cache-Control": "no-store", "X-IPTV-Request-Id": requestId },
+  });
+}
+
+async function validateBearer(token: string): Promise<boolean> {
+  const key = createHash("sha256").update(token).digest("base64url");
+  if (getFresh(authCache, key)) return true;
+  const url = process.env.SUPABASE_URL;
+  const publishableKey = process.env.SUPABASE_PUBLISHABLE_KEY;
+  if (!url || !publishableKey) throw new Error("Supabase authentication is not configured");
+  const { createClient } = await import("@supabase/supabase-js");
+  const client = createClient(url, publishableKey, {
+    auth: { persistSession: false, autoRefreshToken: false, storage: undefined },
+  });
+  const { data, error } = await client.auth.getUser(token);
+  if (error || !data.user) return false;
+  putBounded(authCache, key, { value: true, expiresAt: Date.now() + 20_000 });
+  return true;
+}
+
+async function getTv(tvId: string): Promise<TvRowForStream | null> {
+  const cached = getFresh(tvCache, tvId);
+  if (cached) return cached;
+  const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+  const { data, error } = await supabaseAdmin
+    .from("tvs")
+    .select(
+      "id, enabled, server_url, username, password, connection_type, selected_channel_id, current_stream_url",
+    )
+    .eq("id", tvId)
+    .maybeSingle();
+  if (error) throw new Error("TV configuration lookup failed");
+  if (!data) return null;
+  const tv = data as TvRowForStream;
+  putBounded(tvCache, tvId, { value: tv, expiresAt: Date.now() + 5_000 });
+  return tv;
+}
+
+async function getSessionStatus(tvId: string): Promise<string | null> {
+  const cached = getFresh(sessionCache, tvId);
+  if (cached !== undefined) return cached;
+  const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+  const { data, error } = await supabaseAdmin
+    .from("tv_stream_sessions")
+    .select("status")
+    .eq("tv_id", tvId)
+    .maybeSingle();
+  if (error) throw new Error("Stream session lookup failed");
+  const status = data?.status ?? null;
+  putBounded(sessionCache, tvId, { value: status, expiresAt: Date.now() + 3_000 });
+  return status;
+}
+
+async function recordTelemetry(
+  tvId: string,
+  status: "online" | "error",
+  latencyMs: number,
+  error?: unknown,
+): Promise<void> {
+  const now = Date.now();
+  if (status === "online" && now - (successfulTelemetryAt.get(tvId) ?? 0) < 30_000) return;
+  if (status === "online") putBounded(successfulTelemetryAt, tvId, now);
+  try {
+    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+    const safeMessage = error == null ? null : redactIptvText(error);
+    await Promise.all([
+      supabaseAdmin
+        .from("tv_stream_sessions")
+        .update({
+          status: status === "online" ? "live" : "error",
+          ...(status === "online" ? { last_playlist_fetch_at: new Date().toISOString() } : {}),
+          last_error: safeMessage,
+        })
+        .eq("tv_id", tvId),
+      supabaseAdmin.from("stream_health_log").insert({
+        tv_id: tvId,
+        status,
+        latency_ms: Math.max(0, Math.round(latencyMs)),
+        ...(safeMessage ? { error: safeMessage } : {}),
+      }),
+    ]);
+  } catch {
+    // Playback must not depend on telemetry persistence.
+  }
+}
+
+export async function handlePlaylistRequest(request: Request, tvId: string): Promise<Response> {
+  const requestId = iptvRequestId();
+  const startedAt = Date.now();
+  const authStarted = Date.now();
+  const authHeader = request.headers.get("authorization");
+  if (!authHeader?.startsWith("Bearer ")) return safeErrorResponse("Unauthorized", 401, requestId);
+  const token = authHeader.slice("Bearer ".length);
+  if (token.split(".").length !== 3) return safeErrorResponse("Unauthorized", 401, requestId);
+
+  try {
+    if (!(await validateBearer(token))) return safeErrorResponse("Unauthorized", 401, requestId);
+  } catch (error) {
+    logIptvTiming({
+      requestId,
+      tvId,
+      kind: "playlist",
+      upstreamHost: "none",
+      cache: "miss",
+      startedAt,
+      endedAt: Date.now(),
+      failureCategory: "auth_service_error",
+      message: error,
+    });
+    return safeErrorResponse("Authentication service unavailable", 503, requestId);
+  }
+  const authMs = Date.now() - authStarted;
+
+  if (process.env.DISABLE_IPTV_PROXY === "true") {
+    logIptvTiming({
+      requestId,
+      tvId,
+      kind: "playlist",
+      upstreamHost: "none",
+      cache: "miss",
+      startedAt,
+      endedAt: Date.now(),
+      failureCategory: "proxy_disabled",
+      message: "DISABLE_IPTV_PROXY must remain false in production",
+    });
+    return safeErrorResponse("IPTV proxy is required", 503, requestId);
+  }
+
+  try {
+    const [tv, sessionStatus] = await Promise.all([getTv(tvId), getSessionStatus(tvId)]);
+    if (!tv || !tv.enabled) return safeErrorResponse("TV unavailable", 404, requestId);
+    if (!tv.selected_channel_id) return safeErrorResponse("TV not configured", 409, requestId);
+    if (sessionStatus === "stopped")
+      return safeErrorResponse("Stream stopped by admin", 409, requestId);
+
+    const { getSharedPlaylist } = await import("@/lib/stream-session.server");
+    const result = await getSharedPlaylist(tv, `/api/sports-arena/tv/${tv.id}/seg`);
+    void recordTelemetry(tv.id, "online", Date.now() - startedAt);
+    logIptvTiming({
+      requestId,
+      tvId,
+      kind: "playlist",
+      upstreamHost: upstreamHostname(result.upstreamUrl),
+      cache: result.cache,
+      upstreamStatus: result.upstreamStatus,
+      startedAt,
+      upstreamTiming: result.timing,
+      firstDownstreamAt: Date.now(),
+      endedAt: Date.now(),
+      bytes: Buffer.byteLength(result.rewritten),
+    });
+    const headers = new Headers({
+      "Content-Type": "application/vnd.apple.mpegurl; charset=utf-8",
+      "Cache-Control": "no-store",
+      ...iptvResponseHeaders(requestId, result.cache, result.timing),
+    });
+    headers.set("Server-Timing", `${headers.get("Server-Timing")}, auth;dur=${authMs}`);
+    return new Response(result.rewritten, { status: 200, headers });
+  } catch (error) {
+    void recordTelemetry(tvId, "error", Date.now() - startedAt, error);
+    const status = (error as { status?: number } | null)?.status === 429 ? 429 : 502;
+    logIptvTiming({
+      requestId,
+      tvId,
+      kind: "playlist",
+      upstreamHost: "redacted",
+      cache: "miss",
+      startedAt,
+      endedAt: Date.now(),
+      failureCategory: status === 429 ? "connection_limit" : "playlist_failure",
+      message: error,
+    });
+    return new Response(
+      status === 429 ? "Provider connection limit reached" : "Temporary upstream failure",
+      {
+        status,
+        headers: {
+          "Cache-Control": "no-store",
+          "X-IPTV-Request-Id": requestId,
+          ...(status === 429 ? { "Retry-After": "10" } : { "Retry-After": "2" }),
+        },
+      },
+    );
+  }
+}
+
+export function resetPlaylistRouteCachesForTests(): void {
+  authCache.clear();
+  tvCache.clear();
+  sessionCache.clear();
+  successfulTelemetryAt.clear();
+}
 
 export const Route = createFileRoute("/api/sports-arena/tv/$tvId/playlist")({
   server: {
-    handlers: {
-      GET: async ({ request, params }) => {
-        const authHeader = request.headers.get("authorization");
-        if (!authHeader?.startsWith("Bearer ")) {
-          return new Response("Unauthorized", { status: 401 });
-        }
-        const token = authHeader.slice("Bearer ".length);
-        if (token.split(".").length !== 3) {
-          return new Response("Unauthorized", { status: 401 });
-        }
-
-        const SUPABASE_URL = process.env.SUPABASE_URL;
-        const SUPABASE_PUBLISHABLE_KEY = process.env.SUPABASE_PUBLISHABLE_KEY;
-        if (!SUPABASE_URL || !SUPABASE_PUBLISHABLE_KEY) {
-          return new Response("Server misconfigured", { status: 500 });
-        }
-
-        const { createClient } = await import("@supabase/supabase-js");
-        const anon = createClient(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY, {
-          auth: { persistSession: false, autoRefreshToken: false, storage: undefined },
-        });
-        const { data: userData, error: userErr } = await anon.auth.getUser(token);
-        if (userErr || !userData?.user) {
-          return new Response("Unauthorized", { status: 401 });
-        }
-
-        const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
-        const { data: tv, error } = await supabaseAdmin
-          .from("tvs")
-          .select(
-            "id, enabled, server_url, username, password, connection_type, selected_channel_id, current_stream_url",
-          )
-          .eq("id", params.tvId)
-          .maybeSingle();
-        if (error) return new Response(error.message, { status: 500 });
-        if (!tv || !tv.enabled) return new Response("TV unavailable", { status: 404 });
-        // A channel must be selected. server_url is optional: when a TV has no
-        // per-TV credentials, getSharedPlaylist -> credsFor falls back to the
-        // global IPTV provider (app_settings). Requiring server_url here would
-        // wrongly 409 the common global-Xtream-TV case.
-        if (!tv.selected_channel_id) {
-          return new Response("TV not configured", { status: 409 });
-        }
-
-        if (process.env.DISABLE_IPTV_PROXY === "true") {
-          const { credsFor } = await import("@/lib/stream-session.server");
-          const { xtreamUpstreamUrl, resolveStreamUrl } = await import("@/lib/iptv-client.server");
-          try {
-            const creds = await credsFor(tv);
-            const upstreamUrl =
-              creds.connection_type === "xtream"
-                ? xtreamUpstreamUrl(creds, tv.selected_channel_id)
-                : resolveStreamUrl(creds, tv.selected_channel_id, tv.current_stream_url ?? null);
-            
-            return new Response(null, {
-              status: 302,
-              headers: {
-                "Location": upstreamUrl,
-                "Cache-Control": "no-store",
-              },
-            });
-          } catch (e) {
-            const msg = e instanceof Error ? e.message : "Redirect error";
-            return new Response(msg, { status: 500 });
-          }
-        }
-
-        // Respect admin lifecycle: refuse when the shared session is stopped.
-        const { data: session } = await supabaseAdmin
-          .from("tv_stream_sessions")
-          .select("status")
-          .eq("tv_id", tv.id)
-          .maybeSingle();
-        if (session?.status === "stopped") {
-          return new Response("Stream stopped by admin", { status: 409 });
-        }
-
-        const { getSharedPlaylist } = await import("@/lib/stream-session.server");
-        const started = Date.now();
-        try {
-          const { rewritten } = await getSharedPlaylist(
-            tv,
-            `/api/sports-arena/tv/${tv.id}/seg`,
-          );
-          // Best-effort telemetry — never block the response.
-          void supabaseAdmin
-            .from("tv_stream_sessions")
-            .update({
-              status: "live",
-              last_playlist_fetch_at: new Date().toISOString(),
-              last_error: null,
-            })
-            .eq("tv_id", tv.id);
-          void supabaseAdmin.from("stream_health_log").insert({
-            tv_id: tv.id,
-            status: "online",
-            latency_ms: Date.now() - started,
-          });
-          return new Response(rewritten, {
-            status: 200,
-            headers: {
-              "Content-Type": "application/vnd.apple.mpegurl",
-              "Cache-Control": "no-store",
-            },
-          });
-        } catch (e) {
-          const msg = e instanceof Error ? e.message : "Upstream error";
-          void supabaseAdmin
-            .from("tv_stream_sessions")
-            .update({ status: "error", last_error: msg })
-            .eq("tv_id", tv.id);
-          void supabaseAdmin.from("stream_health_log").insert({
-            tv_id: tv.id,
-            status: "error",
-            latency_ms: Date.now() - started,
-            error: msg,
-          });
-          return new Response(msg, { status: 502 });
-        }
-      },
-    },
+    handlers: { GET: async ({ request, params }) => handlePlaylistRequest(request, params.tvId) },
   },
 });
