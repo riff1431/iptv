@@ -6,10 +6,29 @@
 // You can pass additional config via defineConfig({ vite: { ... }, etc... }) if needed.
 import { defineConfig } from "@lovable.dev/vite-tanstack-config";
 import { mcpPlugin } from "@lovable.dev/mcp-js/stacks/tanstack/vite";
+import { resolve } from "node:path";
 
 // Allow overriding the Nitro preset via env so self-hosted (Dokploy/Docker) builds
 // can target `node-server` while the default (Lovable-hosted) build stays on Cloudflare.
 const nitroPreset = process.env.NITRO_PRESET;
+
+// Patch mcpPlugin to normalize path separators on Windows to avoid assertion errors
+const patchedMcpPlugin = (...args: Parameters<typeof mcpPlugin>) => {
+  const plugin = mcpPlugin(...args);
+  const originalConfigResolved = plugin.configResolved;
+  if (originalConfigResolved) {
+    plugin.configResolved = function (config) {
+      const originalRoot = config.root;
+      config.root = resolve(config.root);
+      try {
+        return originalConfigResolved.call(this, config);
+      } finally {
+        config.root = originalRoot;
+      }
+    };
+  }
+  return plugin;
+};
 
 const lovableConfig = defineConfig({
   tanstackStart: {
@@ -18,7 +37,7 @@ const lovableConfig = defineConfig({
     server: { entry: "server" },
   },
   vite: {
-    plugins: [mcpPlugin()],
+    plugins: [patchedMcpPlugin()],
   },
   ...(nitroPreset ? { nitro: { preset: nitroPreset } } : {}),
 });
