@@ -29,3 +29,31 @@ The production bottleneck was confirmed in that path:
 `global-iptv-relay.server.ts` serves the separately signed public/global channel
 flow. It is not imported by the Sports Arena routes and is not part of the
 production call graph above.
+
+The public channel page has its own production playback path:
+
+`/iptv/:channelId` -> `IPTVPlayer` -> signed
+`/api/public/iptv/channel/:channelId/playlist` ->
+`getSharedGlobalPlaylist()` -> encrypted segment URLs ->
+`/api/public/iptv/channel/:channelId/segment` ->
+`getSharedGlobalResourceResponse()`.
+
+That relay already streamed a cache miss to its first viewer, but it retained a
+15-second absolute AbortController deadline until the cache branch finished.
+Consequently, a healthy segment that kept making progress could still be cut
+off on the production VPS. It also used a second redirect/fetch implementation,
+did not forward Range/status metadata through the public route, and could miss a
+nested playlist when neither its URL nor Content-Type identified it. The public
+`IPTVPlayer` compounded short stalls by restarting HLS loading after only four
+seconds without playback progress. The public flow therefore needs to share the
+canonical streaming upstream client, idle timeout semantics, bounded cache
+configuration, diagnostics, and controlled player recovery used by the sports
+flow.
+
+The public relay is now consolidated on `customFetch()`: it resolves at headers,
+uses reset-on-progress idle timeouts, streams cache misses, forwards Range/206
+metadata, and uses the same byte-bounded cache environment settings as the
+sports relay. The obsolete buffered resource entry point and inactive
+Cloudflare Cache API branch were removed from the Nitro Node path. `IPTVPlayer`
+now uses production-safe HLS load policies and bounded recovery without the
+four-second unconditional loader restart.

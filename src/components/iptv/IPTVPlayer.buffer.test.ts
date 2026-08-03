@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { getBufferedSecondsAhead } from "./IPTVPlayer";
+import { getBufferedSecondsAhead } from "./iptv-player-utils";
 
 function timeRanges(ranges: Array<[number, number]>): TimeRanges {
   return {

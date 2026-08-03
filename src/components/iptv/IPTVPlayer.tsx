@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import Hls from "hls.js";
+import Hls, { type ErrorData } from "hls.js";
 import mpegts from "mpegts.js";
 import {
   Loader2,
@@ -17,6 +17,7 @@ import { Button } from "@/components/ui/button";
 import { Slider } from "@/components/ui/slider";
 import { getIptvPlaybackErrorMessage, isIptvHlsUrl } from "@/lib/iptv-playback-error";
 import { cn } from "@/lib/utils";
+import { getBufferedSecondsAhead } from "./iptv-player-utils";
 
 type Props = {
   url: string;
@@ -29,23 +30,25 @@ const IPTV_MIN_STARTUP_BUFFER_SECONDS = 4;
 const IPTV_STARTUP_BUFFER_DEADLINE_MS = 30_000;
 const VOLUME_STORAGE_KEY = "iptv-player-volume";
 const MUTED_STORAGE_KEY = "iptv-player-muted";
-export function getBufferedSecondsAhead(
-  media: Pick<HTMLVideoElement, "buffered" | "currentTime">,
-): number {
-  const ranges = media.buffered;
-  for (let index = 0; index < ranges.length; index++) {
-    const start = ranges.start(index);
-    const end = ranges.end(index);
-    if (media.currentTime >= start - 0.25 && media.currentTime <= end) {
-      return Math.max(0, end - Math.max(media.currentTime, start));
-    }
-    // Before autoplay begins, MSE timestamps can start far above currentTime=0.
-    // In that case the first range length is the usable startup reserve.
-    if (media.currentTime < start) return Math.max(0, end - start);
-  }
-  return 0;
-}
 
+const stableLoadPolicy = (firstByteMs: number, loadMs: number) => ({
+  default: {
+    maxTimeToFirstByteMs: firstByteMs,
+    maxLoadTimeMs: loadMs,
+    timeoutRetry: {
+      maxNumRetry: 2,
+      retryDelayMs: 500,
+      maxRetryDelayMs: 4_000,
+      backoff: "exponential" as const,
+    },
+    errorRetry: {
+      maxNumRetry: 2,
+      retryDelayMs: 1_000,
+      maxRetryDelayMs: 8_000,
+      backoff: "exponential" as const,
+    },
+  },
+});
 function readStoredVolume(): number | null {
   if (typeof window === "undefined") return null;
   const raw = window.localStorage.getItem(VOLUME_STORAGE_KEY);
@@ -90,7 +93,7 @@ export function IPTVPlayer({ url, poster }: Props) {
     if (!video) return;
     video.muted = muted;
     video.volume = volume;
-  }, [url]);
+  }, [url, muted, volume]);
 
   // HLS / MPEG-TS / source setup
   useEffect(() => {
@@ -104,18 +107,24 @@ export function IPTVPlayer({ url, poster }: Props) {
     setAutoplayBlocked(false);
     let hls: Hls | null = null;
     let mpegtsPlayer: mpegts.Player | null = null;
-    let recoverAttempts = 0;
+    let recoveryAttempts: number[] = [];
+    let stableSince = Date.now();
+    let recoveryTimer: number | null = null;
     let cancelled = false;
     let waitForStartupBuffer = false;
     let playbackStarted = false;
     let playPending = false;
     let startupBufferTarget = IPTV_STARTUP_BUFFER_SECONDS;
     const startupBufferDeadline = Date.now() + IPTV_STARTUP_BUFFER_DEADLINE_MS;
+    let waitingTimer: number | null = null;
 
     const clearLoading = () => {
+      if (waitingTimer) {
+        window.clearTimeout(waitingTimer);
+        waitingTimer = null;
+      }
       setLoading(false);
       setLoadProgress(null);
-      recoverAttempts = 0;
     };
     const markAutoplayBlocked = () => {
       if (cancelled) return;
@@ -186,6 +195,7 @@ export function IPTVPlayer({ url, poster }: Props) {
       clearLoading();
     };
     const onCanPlay = () => {
+      clearLoading();
       startPlayback();
     };
     let lastTime = 0;
@@ -198,10 +208,10 @@ export function IPTVPlayer({ url, poster }: Props) {
       if (video.currentTime > lastTime + 0.1) {
         lastTime = video.currentTime;
         lastAdvanceTime = now;
+        if (now - stableSince >= 30_000) recoveryAttempts = [];
       }
     };
 
-    let waitingTimer: number | null = null;
     const onWaiting = () => {
       // Debounce transient 50ms MSE buffer catch-ups — only show buffering if stall > 600ms
       if (waitingTimer) window.clearTimeout(waitingTimer);
@@ -233,30 +243,31 @@ export function IPTVPlayer({ url, poster }: Props) {
     video.addEventListener("canplay", onCanPlay);
     video.addEventListener("timeupdate", onTimeUpdate);
     video.addEventListener("waiting", onWaiting);
+    video.addEventListener("stalled", onWaiting);
     video.addEventListener("error", onSrcError);
 
-    // Watchdog: Auto-recover stream if playback freezes for > 4 seconds while playing
+    // Ordinary live jitter is not a reason to restart the loader. After a
+    // sustained stall, only correct excessive drift from the live edge.
     stallCheckTimer = window.setInterval(() => {
       if (
         videoRef.current &&
         !videoRef.current.paused &&
         !videoRef.current.ended &&
-        Date.now() - lastAdvanceTime > 4000
+        Date.now() - lastAdvanceTime > 6000
       ) {
-        lastAdvanceTime = Date.now();
         if (mpegtsPlayer) {
-          try {
-            mpegtsPlayer.unload();
-            mpegtsPlayer.load();
-            const res = mpegtsPlayer.play();
-            if (res && typeof (res as any).catch === "function") {
-              (res as any).catch(() => {});
-            }
-          } catch {
-            /* ignore */
-          }
+          onWaiting();
         } else if (hls) {
-          hls.startLoad();
+          const ranges = video.seekable;
+          if (ranges.length) {
+            const liveEdge = ranges.end(ranges.length - 1);
+            if (liveEdge - video.currentTime > 30) {
+              const safeTarget = hls.liveSyncPosition ?? liveEdge - 12;
+              video.currentTime = Math.max(ranges.start(0), Math.min(liveEdge - 2, safeTarget));
+              lastAdvanceTime = Date.now();
+            }
+          }
+          onWaiting();
         }
       }
     }, 2000);
@@ -325,8 +336,11 @@ export function IPTVPlayer({ url, poster }: Props) {
         });
 
         mpegtsPlayer.on(mpegts.Events.ERROR, (_errType: string, _errDetail: string) => {
-          if (recoverAttempts < 2) {
-            recoverAttempts++;
+          const now = Date.now();
+          recoveryAttempts = recoveryAttempts.filter((time) => now - time < 60_000);
+          if (recoveryAttempts.length < 2) {
+            recoveryAttempts.push(now);
+            stableSince = now;
             setLoadingStage("Reconnecting stream…");
             mpegtsPlayer?.unload();
             mpegtsPlayer?.load();
@@ -360,21 +374,15 @@ export function IPTVPlayer({ url, poster }: Props) {
         progressive: true,
         // IPTV-tuned live settings — generous network tolerance, relaxed polling.
         lowLatencyMode: false, // Turn off aggressive sub-second polling to eliminate HTTP 458 provider line locks
-        liveSyncDurationCount: 4, // Keep several completed segments ahead to absorb relay jitter
-        liveMaxLatencyDurationCount: 10,
+        liveSyncDurationCount: 6,
+        liveMaxLatencyDurationCount: 12,
         backBufferLength: 30,
         maxBufferLength: 60,
-        maxMaxBufferLength: 90,
+        maxMaxBufferLength: 120,
         startFragPrefetch: true,
-        // Retry each fragment up to 8 times before declaring a fatal error,
-        // with exponential back-off capped at 4 s. This absorbs provider CDN hiccups.
-        fragLoadingMaxRetry: 8,
-        fragLoadingRetryDelay: 1000,
-        fragLoadingMaxRetryTimeout: 4_000,
-        // Give the manifest 15 s before giving up (slow provider API servers).
-        manifestLoadingMaxRetry: 6,
-        manifestLoadingRetryDelay: 1000,
-        manifestLoadingTimeOut: 15_000,
+        manifestLoadPolicy: stableLoadPolicy(10_000, 30_000),
+        playlistLoadPolicy: stableLoadPolicy(10_000, 30_000),
+        fragLoadPolicy: stableLoadPolicy(15_000, 120_000),
       });
 
       hls.on(Hls.Events.MANIFEST_LOADING, () => {
@@ -399,8 +407,10 @@ export function IPTVPlayer({ url, poster }: Props) {
         setLoadProgress((p) => (p !== null && p < 70 ? 70 : p));
       });
       hls.on(Hls.Events.FRAG_LOADING, () => {
-        setLoadingStage("Buffering…");
-        setLoadProgress((p) => (p !== null && p < 80 ? 80 : p));
+        if (!playbackStarted) {
+          setLoadingStage("Building stable buffer…");
+          setLoadProgress((p) => (p !== null && p < 80 ? 80 : p));
+        }
       });
       hls.on(Hls.Events.FRAG_LOADED, () => {
         setLoadProgress((p) => (p !== null && p < 95 ? 95 : p));
@@ -408,38 +418,50 @@ export function IPTVPlayer({ url, poster }: Props) {
       hls.on(Hls.Events.BUFFER_APPENDED, () => {
         startPlayback();
       });
+      hls.on(Hls.Events.FRAG_BUFFERED, () => {
+        lastAdvanceTime = Date.now();
+        clearLoading();
+        startPlayback();
+      });
 
       hls.loadSource(hlsTargetUrl);
       hls.attachMedia(video);
 
-      hls.on(Hls.Events.ERROR, (_e, data) => {
+      hls.on(Hls.Events.ERROR, (_e, data: ErrorData) => {
         // ── Non-fatal errors ──────────────────────────────────────────────
         // hls.js handles non-fatal errors internally (retries, level switching).
-        // We only intervene to show a temporary loading indicator.
-        if (!data.fatal) {
-          if (
-            data.type === Hls.ErrorTypes.NETWORK_ERROR &&
-            (data.details === "fragLoadError" || data.details === "fragLoadTimeOut")
-          ) {
-            // Fragment fetch failed — show buffering state; hls.js will retry.
-            setLoading(true);
-            setLoadingStage("Reconnecting…");
-          }
-          return;
-        }
+        if (!data.fatal) return;
 
         // ── Fatal errors ──────────────────────────────────────────────────
         if (!hls) return;
 
         const isConnLimit = data.response?.code === 458 || data.response?.code === 429;
-        if (!isConnLimit && data.type === Hls.ErrorTypes.NETWORK_ERROR && recoverAttempts < 5) {
-          recoverAttempts++;
-          setLoadingStage("Reconnecting…");
-          setTimeout(() => hls?.startLoad(), 800);
+        const now = Date.now();
+        recoveryAttempts = recoveryAttempts.filter((time) => now - time < 60_000);
+        if (!isConnLimit && data.type === Hls.ErrorTypes.NETWORK_ERROR && recoveryTimer !== null) {
           return;
         }
-        if (!isConnLimit && data.type === Hls.ErrorTypes.MEDIA_ERROR && recoverAttempts < 5) {
-          recoverAttempts++;
+        if (
+          !isConnLimit &&
+          data.type === Hls.ErrorTypes.NETWORK_ERROR &&
+          recoveryAttempts.length < 3
+        ) {
+          recoveryAttempts.push(now);
+          stableSince = now;
+          setLoadingStage("Reconnecting…");
+          recoveryTimer = window.setTimeout(() => {
+            recoveryTimer = null;
+            hls?.startLoad();
+          }, 800);
+          return;
+        }
+        if (
+          !isConnLimit &&
+          data.type === Hls.ErrorTypes.MEDIA_ERROR &&
+          recoveryAttempts.length < 3
+        ) {
+          recoveryAttempts.push(now);
+          stableSince = now;
           setLoadingStage("Recovering…");
           hls.recoverMediaError();
           return;
@@ -457,10 +479,12 @@ export function IPTVPlayer({ url, poster }: Props) {
       cancelled = true;
       if (waitingTimer) window.clearTimeout(waitingTimer);
       if (stallCheckTimer) window.clearInterval(stallCheckTimer);
+      if (recoveryTimer) window.clearTimeout(recoveryTimer);
       video.removeEventListener("playing", onPlaying);
       video.removeEventListener("canplay", onCanPlay);
       video.removeEventListener("timeupdate", onTimeUpdate);
       video.removeEventListener("waiting", onWaiting);
+      video.removeEventListener("stalled", onWaiting);
       video.removeEventListener("error", onSrcError);
       if (mpegtsPlayer) {
         mpegtsPlayer.detachMediaElement();
@@ -556,6 +580,12 @@ export function IPTVPlayer({ url, poster }: Props) {
   // On stream switch, forcibly exit any lingering fullscreen so the new
   // stream doesn't inherit a stuck fullscreen UI.
   useEffect(() => {
+    const video = videoRef.current as
+      | (HTMLVideoElement & {
+          webkitDisplayingFullscreen?: boolean;
+          webkitExitFullscreen?: () => void;
+        })
+      | null;
     return () => {
       const doc = document as Document & {
         webkitFullscreenElement?: Element | null;
@@ -566,12 +596,6 @@ export function IPTVPlayer({ url, poster }: Props) {
       } else if (doc.webkitFullscreenElement && doc.webkitExitFullscreen) {
         doc.webkitExitFullscreen();
       }
-      const video = videoRef.current as
-        | (HTMLVideoElement & {
-            webkitDisplayingFullscreen?: boolean;
-            webkitExitFullscreen?: () => void;
-          })
-        | null;
       if (video?.webkitDisplayingFullscreen && video.webkitExitFullscreen) {
         video.webkitExitFullscreen();
       }

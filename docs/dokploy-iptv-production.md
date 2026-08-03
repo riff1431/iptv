@@ -75,6 +75,12 @@ completion, and `X-IPTV-Cache`, `X-IPTV-Request-Id`, and `Server-Timing` are
 present. Match request IDs with container logs and watch memory/network use with
 `docker stats` for at least 30 minutes.
 
+For the public player, open a single page such as `/iptv/CHANNEL_ID` and inspect
+the signed `/api/public/iptv/channel/CHANNEL_ID/playlist` and `/segment` requests.
+Do not copy the signed query values into logs or tickets. The same one-replica,
+cache, timeout, and timing settings apply to both this public flow and Sports
+Arena.
+
 If the domain is proxied through Cloudflare, temporarily switch that DNS record
 to **DNS only** and repeat the one-viewer test. A material improvement isolates a
 Cloudflare buffering/routing contribution; restore the intended proxy setting

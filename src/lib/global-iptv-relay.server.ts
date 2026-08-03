@@ -1,48 +1,77 @@
 import { sealRelayUrl } from "@/lib/iptv-relay-token.server";
+import {
+  classifyUpstreamError,
+  customFetch,
+  getUpstreamTiming,
+  IPTV_UPSTREAM_HEADERS,
+  type UpstreamTiming,
+} from "@/lib/iptv-upstream.server";
 
 const PLAYLIST_TTL_MS = 2_500;
 const PLAYLIST_STALE_MS = 30_000;
 const PLAYLIST_CACHE_MAX = 32;
-const RESOURCE_TTL_MS = 20_000;
-const FETCH_TIMEOUT_MS = 15_000;
 const MAX_PLAYLIST_BYTES = 2 * 1024 * 1024;
-const MAX_RESOURCE_BYTES = 32 * 1024 * 1024;
-const MAX_CACHEABLE_RESOURCE_BYTES = 8 * 1024 * 1024;
-const MAX_RESOURCE_CACHE_BYTES = 96 * 1024 * 1024;
 
-const UPSTREAM_HEADERS = {
-  "User-Agent":
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36",
-  Accept: "*/*",
-};
+function envInt(name: string, fallback: number, min: number, max: number): number {
+  const value = Number(process.env[name]);
+  return Number.isFinite(value) ? Math.min(max, Math.max(min, Math.round(value))) : fallback;
+}
+
+const RESOURCE_TTL_MS = envInt("IPTV_SEGMENT_CACHE_TTL_MS", 20_000, 1_000, 120_000);
+const MAX_RESOURCE_CACHE_BYTES = envInt(
+  "IPTV_SEGMENT_CACHE_TOTAL_MAX_BYTES",
+  64 * 1024 * 1024,
+  8 * 1024 * 1024,
+  512 * 1024 * 1024,
+);
+const MAX_CACHEABLE_RESOURCE_BYTES = Math.min(
+  MAX_RESOURCE_CACHE_BYTES,
+  envInt("IPTV_SEGMENT_CACHE_ITEM_MAX_BYTES", 8 * 1024 * 1024, 64 * 1024, 64 * 1024 * 1024),
+);
 
 type PlaylistEntry = {
   fetchedAt: number;
   body: string;
+  status: number;
+  upstreamTiming?: UpstreamTiming;
+};
+
+export type RelayPlaylistResponse = {
+  body: string;
+  status: number;
+  cache: "hit" | "miss" | "in-flight";
+  upstreamTiming?: UpstreamTiming;
 };
 
 export type RelayResource = {
   fetchedAt: number;
   bytes: Uint8Array;
+  status: number;
   contentType: string;
+  contentLength: string | null;
+  contentRange: string | null;
+  acceptRanges: string | null;
+  etag: string | null;
+  lastModified: string | null;
   finalUrl: string;
 };
 
 export type RelayResourceResponse =
-  | { kind: "buffered"; resource: RelayResource }
+  | { kind: "buffered"; resource: RelayResource; cache: "hit" | "in-flight" }
   | {
       kind: "stream";
       body: ReadableStream<Uint8Array>;
-      contentType: string;
-      finalUrl: string;
+      resource: Omit<RelayResource, "fetchedAt" | "bytes">;
+      cache: "miss";
+      upstreamTiming?: UpstreamTiming;
     };
 
 type StreamingResource = {
   claimed: boolean;
   body: ReadableStream<Uint8Array>;
-  contentType: string;
-  finalUrl: string;
-  completed: Promise<RelayResource>;
+  resource: Omit<RelayResource, "fetchedAt" | "bytes">;
+  upstreamTiming?: UpstreamTiming;
+  completed?: Promise<RelayResource>;
 };
 const playlistCache = new Map<string, PlaylistEntry>();
 const playlistInflight = new Map<string, Promise<PlaylistEntry>>();
@@ -50,117 +79,6 @@ const resourceCache = new Map<string, RelayResource>();
 const resourceInflight = new Map<string, Promise<RelayResource>>();
 const resourceStreamStarts = new Map<string, Promise<StreamingResource | RelayResource>>();
 let resourceCacheBytes = 0;
-
-// ---------------------------------------------------------------------------
-// L2 cache: Cloudflare Cache API (caches.default).
-//
-// The Maps above are module-level, i.e. per-isolate. On Cloudflare Workers
-// (many short-lived isolates per datacenter) each isolate starts with empty
-// Maps, so every isolate independently fetches the Xtream upstream — overrun
-// the provider's connection limit (HTTP 458) and thrash through retries. That
-// is the root cause of the multi-minute startup buffering seen in production
-// but not locally (local = one long-lived Node process, so the Maps persist
-// and a single upstream fetch fans out to all viewers).
-//
-// caches.default is shared across every isolate in a datacenter, which restores
-// that "one fetch, many viewers" fan-out on production. It is undefined in
-// local Node dev, where we transparently fall back to the in-memory Maps, so
-// local behavior is unchanged.
-type RelayCache = {
-  match: (req: Request) => Promise<Response | undefined>;
-  put: (req: Request, res: Response) => Promise<void>;
-};
-const sharedCache: RelayCache | null = (() => {
-  try {
-    const c = (globalThis as { caches?: { default?: RelayCache } }).caches;
-    return c?.default ?? null;
-  } catch {
-    return null;
-  }
-})();
-
-function playlistCacheReq(key: string): Request {
-  return new Request(`https://pgx-iptv-cache.internal/playlist/${encodeURIComponent(key)}`, {
-    method: "GET",
-  });
-}
-function resourceCacheReq(key: string): Request {
-  return new Request(`https://pgx-iptv-cache.internal/resource/${encodeURIComponent(key)}`, {
-    method: "GET",
-  });
-}
-
-async function l2GetPlaylist(key: string): Promise<string | null> {
-  if (!sharedCache) return null;
-  try {
-    const cached = await sharedCache.match(playlistCacheReq(key));
-    if (!cached || !cached.ok) return null;
-    const fetchedAt = Number(cached.headers.get("x-fetched-at") || 0);
-    if (Date.now() - fetchedAt >= PLAYLIST_TTL_MS) return null;
-    return await cached.text();
-  } catch {
-    return null;
-  }
-}
-async function l2PutPlaylist(key: string, body: string): Promise<void> {
-  if (!sharedCache) return;
-  try {
-    await sharedCache.put(
-      playlistCacheReq(key),
-      new Response(body, {
-        headers: {
-          "content-type": "text/plain; charset=utf-8",
-          "x-fetched-at": String(Date.now()),
-          "cache-control": `max-age=${Math.ceil(PLAYLIST_TTL_MS / 1000)}`,
-        },
-      }),
-    );
-  } catch {
-    /* best-effort; L1 still serves. */
-  }
-}
-
-async function l2GetResource(key: string): Promise<RelayResource | null> {
-  if (!sharedCache) return null;
-  try {
-    const cached = await sharedCache.match(resourceCacheReq(key));
-    if (!cached || !cached.ok) return null;
-    const fetchedAt = Number(cached.headers.get("x-fetched-at") || 0);
-    if (Date.now() - fetchedAt >= RESOURCE_TTL_MS) return null;
-    const bytes = new Uint8Array(await cached.arrayBuffer());
-    return {
-      fetchedAt,
-      bytes,
-      contentType: cached.headers.get("x-content-type") || "application/octet-stream",
-      finalUrl: cached.headers.get("x-final-url") || "",
-    };
-  } catch {
-    return null;
-  }
-}
-async function l2PutResource(key: string, entry: RelayResource): Promise<void> {
-  if (!sharedCache) return;
-  try {
-    // Copy into a fresh ArrayBuffer so the body is a plain ArrayBuffer (valid
-    // BodyInit on both runtimes; sidesteps the Uint8Array<ArrayBufferLike> typing).
-    const buf = new ArrayBuffer(entry.bytes.byteLength);
-    new Uint8Array(buf).set(entry.bytes);
-    await sharedCache.put(
-      resourceCacheReq(key),
-      new Response(buf, {
-        headers: {
-          "content-type": "application/octet-stream",
-          "x-content-type": entry.contentType,
-          "x-final-url": entry.finalUrl,
-          "x-fetched-at": String(entry.fetchedAt),
-          "cache-control": `max-age=${Math.ceil(RESOURCE_TTL_MS / 1000)}`,
-        },
-      }),
-    );
-  } catch {
-    /* best-effort. */
-  }
-}
 
 export class IptvRelayUpstreamError extends Error {
   constructor(
@@ -176,18 +94,23 @@ function cacheKey(scope: string, upstreamUrl: string): string {
   return `${scope}::${upstreamUrl}`;
 }
 
-function createTimeout(): { signal: AbortSignal; clear: () => void } {
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
-  return { signal: controller.signal, clear: () => clearTimeout(timer) };
-}
-
 function assertUsefulUpstream(status: number, byteLength: number): void {
-  if (status === 458 && byteLength === 0) {
-    throw new IptvRelayUpstreamError(
-      429,
-      "Xtream connection limit reached. Stop the existing provider session and retry.",
-    );
+  if (status === 458) {
+    if (byteLength === 0) {
+      throw new IptvRelayUpstreamError(
+        429,
+        "Xtream connection limit reached. Stop the existing provider session and retry.",
+      );
+    }
+    // Some Xtream servers return a valid #EXTM3U body with their private 458
+    // status. The caller validates the body before treating it as playable.
+    return;
+  }
+  if (status === 404 || status === 410) {
+    throw new IptvRelayUpstreamError(status, `Upstream returned HTTP ${status}`);
+  }
+  if (status === 429) {
+    throw new IptvRelayUpstreamError(429, "Upstream connection limit or rate limit reached");
   }
   if (status < 200 || status >= 300) {
     throw new IptvRelayUpstreamError(502, `Upstream returned HTTP ${status}`);
@@ -195,19 +118,31 @@ function assertUsefulUpstream(status: number, byteLength: number): void {
 }
 
 function assertStreamableUpstream(response: Response): void {
-  const declaredLength = Number(response.headers.get("content-length") || 0);
-  if (response.status === 458) {
-    throw new IptvRelayUpstreamError(
-      429,
-      "Xtream connection limit reached. Stop the existing provider session and retry.",
-    );
+  if (response.status === 404 || response.status === 410) {
+    throw new IptvRelayUpstreamError(response.status, `Upstream returned HTTP ${response.status}`);
   }
-  if (response.status < 200 || response.status >= 300) {
+  if (response.status === 429) {
+    throw new IptvRelayUpstreamError(429, "Upstream connection limit or rate limit reached");
+  }
+  if ((response.status < 200 || response.status >= 300) && response.status !== 458) {
     throw new IptvRelayUpstreamError(502, `Upstream returned HTTP ${response.status}`);
   }
-  if (declaredLength > MAX_RESOURCE_BYTES) {
-    throw new IptvRelayUpstreamError(502, "Upstream resource exceeds relay size limit");
-  }
+}
+
+function resourceMetadata(
+  response: Response,
+  finalUrl: string,
+): Omit<RelayResource, "fetchedAt" | "bytes"> {
+  return {
+    status: response.status,
+    contentType: response.headers.get("content-type") || "application/octet-stream",
+    contentLength: response.headers.get("content-length"),
+    contentRange: response.headers.get("content-range"),
+    acceptRanges: response.headers.get("accept-ranges"),
+    etag: response.headers.get("etag"),
+    lastModified: response.headers.get("last-modified"),
+    finalUrl,
+  };
 }
 
 function isPlaylistResponse(response: Response, finalUrl: string): boolean {
@@ -318,67 +253,40 @@ function pruneResourceCache(now: number): void {
 async function fetchWithRedirects(
   initialUrl: string,
   headers: Record<string, string>,
-  signal: AbortSignal,
+  signal?: AbortSignal,
   maxHops = 5,
 ): Promise<{ response: Response; finalUrl: string }> {
-  let curr = new URL(initialUrl);
-  const currentHeaders = { ...headers };
-  for (let i = 0; i < maxHops; i++) {
-    delete currentHeaders["Host"];
-    delete currentHeaders["host"];
-    delete currentHeaders["Host".toLowerCase()];
-    const res = await fetch(curr.toString(), {
-      method: "GET",
-      redirect: "manual",
-      signal,
-      headers: currentHeaders,
-    });
-    if (res.status >= 300 && res.status < 400) {
-      const loc = res.headers.get("location");
-      if (!loc) return { response: res, finalUrl: curr.toString() };
-      let nextUrl: URL;
-      try {
-        nextUrl = new URL(loc, curr);
-      } catch {
-        return { response: res, finalUrl: curr.toString() };
-      }
-      curr = nextUrl;
-      continue;
-    }
-    return { response: res, finalUrl: curr.toString() };
-  }
-  throw new Error("Too many redirects");
+  const response = await customFetch(initialUrl, {
+    method: "GET",
+    redirect: "follow",
+    maxRedirects: maxHops,
+    signal,
+    headers,
+  });
+  return { response, finalUrl: response.url || initialUrl };
 }
 
 export async function getSharedGlobalPlaylist(
   scope: string,
   upstreamUrl: string,
   resourceProxyPath: string,
-): Promise<string> {
+): Promise<RelayPlaylistResponse> {
   const key = cacheKey(scope, upstreamUrl);
   const now = Date.now();
   prunePlaylistCache(now);
   const cached = playlistCache.get(key);
-  if (cached && now - cached.fetchedAt < PLAYLIST_TTL_MS) return cached.body;
-
-  // L2: cross-isolate Cache API (production). Null in local Node dev.
-  const l2 = await l2GetPlaylist(key);
-  if (l2 !== null) {
-    playlistCache.set(key, { fetchedAt: Date.now(), body: l2 });
-    return l2;
+  if (cached && now - cached.fetchedAt < PLAYLIST_TTL_MS) {
+    return { body: cached.body, status: cached.status, cache: "hit" };
+  }
+  const inflight = playlistInflight.get(key);
+  if (inflight) {
+    const entry = await inflight;
+    return { body: entry.body, status: entry.status, cache: "in-flight" };
   }
 
-  const inflight = playlistInflight.get(key);
-  if (inflight) return (await inflight).body;
-
   const pending = (async (): Promise<PlaylistEntry> => {
-    const timeout = createTimeout();
     try {
-      const { response, finalUrl } = await fetchWithRedirects(
-        upstreamUrl,
-        UPSTREAM_HEADERS,
-        timeout.signal,
-      );
+      const { response, finalUrl } = await fetchWithRedirects(upstreamUrl, IPTV_UPSTREAM_HEADERS);
       const bytes = await readResponseCapped(response, MAX_PLAYLIST_BYTES, "Upstream playlist");
       assertUsefulUpstream(response.status, bytes.byteLength);
       const raw = new TextDecoder().decode(bytes);
@@ -388,6 +296,8 @@ export async function getSharedGlobalPlaylist(
       const entry = {
         fetchedAt: Date.now(),
         body: rewriteRelayPlaylist(raw, scope, finalUrl, resourceProxyPath),
+        status: response.status,
+        upstreamTiming: getUpstreamTiming(response),
       };
       prunePlaylistCache(Date.now());
       if (!playlistCache.has(key) && playlistCache.size >= PLAYLIST_CACHE_MAX) {
@@ -395,86 +305,31 @@ export async function getSharedGlobalPlaylist(
         if (oldestKey) playlistCache.delete(oldestKey);
       }
       playlistCache.set(key, entry);
-      void l2PutPlaylist(key, entry.body); // best-effort cross-isolate write
       return entry;
     } catch (error) {
       if ((error as { name?: string } | null)?.name === "AbortError") {
-        throw new IptvRelayUpstreamError(504, "Upstream playlist timed out");
+        const category = classifyUpstreamError(error);
+        throw new IptvRelayUpstreamError(
+          category === "client_abort" ? 499 : 504,
+          category === "client_abort"
+            ? "Client cancelled upstream playlist"
+            : "Upstream playlist timed out",
+        );
       }
       throw error;
     } finally {
-      timeout.clear();
       playlistInflight.delete(key);
     }
   })();
 
   playlistInflight.set(key, pending);
-  return (await pending).body;
-}
-
-export async function getSharedGlobalResource(
-  scope: string,
-  upstreamUrl: string,
-): Promise<RelayResource> {
-  const key = cacheKey(scope, upstreamUrl);
-  const now = Date.now();
-  pruneResourceCache(now);
-  const cached = resourceCache.get(key);
-  if (cached && now - cached.fetchedAt < RESOURCE_TTL_MS) {
-    touchResource(key, cached);
-    return cached;
-  }
-
-  // L2: cross-isolate Cache API (production). Null in local Node dev.
-  const l2 = await l2GetResource(key);
-  if (l2) {
-    if (l2.bytes.byteLength <= MAX_CACHEABLE_RESOURCE_BYTES) {
-      resourceCache.set(key, l2);
-      resourceCacheBytes += l2.bytes.byteLength;
-      pruneResourceCache(Date.now());
-    }
-    return l2;
-  }
-
-  const inflight = resourceInflight.get(key);
-  if (inflight) return inflight;
-
-  const pending = (async (): Promise<RelayResource> => {
-    const timeout = createTimeout();
-    try {
-      const { response, finalUrl } = await fetchWithRedirects(
-        upstreamUrl,
-        UPSTREAM_HEADERS,
-        timeout.signal,
-      );
-      const bytes = await readResponseCapped(response, MAX_RESOURCE_BYTES, "Upstream resource");
-      assertUsefulUpstream(response.status, bytes.byteLength);
-      const entry: RelayResource = {
-        fetchedAt: Date.now(),
-        bytes,
-        contentType: response.headers.get("content-type") || "application/octet-stream",
-        finalUrl,
-      };
-      if (bytes.byteLength <= MAX_CACHEABLE_RESOURCE_BYTES) {
-        resourceCache.set(key, entry);
-        resourceCacheBytes += bytes.byteLength;
-        pruneResourceCache(Date.now());
-        void l2PutResource(key, entry); // best-effort cross-isolate write
-      }
-      return entry;
-    } catch (error) {
-      if ((error as { name?: string } | null)?.name === "AbortError") {
-        throw new IptvRelayUpstreamError(504, "Upstream resource timed out");
-      }
-      throw error;
-    } finally {
-      timeout.clear();
-      resourceInflight.delete(key);
-    }
-  })();
-
-  resourceInflight.set(key, pending);
-  return pending;
+  const entry = await pending;
+  return {
+    body: entry.body,
+    status: entry.status,
+    cache: "miss",
+    upstreamTiming: entry.upstreamTiming,
+  };
 }
 
 /**
@@ -487,96 +342,166 @@ export async function getSharedGlobalResource(
 export async function getSharedGlobalResourceResponse(
   scope: string,
   upstreamUrl: string,
+  options: { range?: string | null; signal?: AbortSignal } = {},
 ): Promise<RelayResourceResponse> {
-  const key = cacheKey(scope, upstreamUrl);
+  const range = options.range?.trim() || null;
+  const key = cacheKey(scope, `${upstreamUrl}::range=${range ?? "full"}`);
+  const canCache = range === null;
   const now = Date.now();
   pruneResourceCache(now);
-  const cached = resourceCache.get(key);
+  const cached = canCache ? resourceCache.get(key) : undefined;
   if (cached && now - cached.fetchedAt < RESOURCE_TTL_MS) {
     touchResource(key, cached);
-    return { kind: "buffered", resource: cached };
+    return { kind: "buffered", resource: cached, cache: "hit" };
   }
-
-  const l2 = await l2GetResource(key);
-  if (l2) {
-    if (l2.bytes.byteLength <= MAX_CACHEABLE_RESOURCE_BYTES) {
-      resourceCache.set(key, l2);
-      resourceCacheBytes += l2.bytes.byteLength;
-      pruneResourceCache(Date.now());
-    }
-    return { kind: "buffered", resource: l2 };
-  }
-
-  const bufferedInflight = resourceInflight.get(key);
+  const bufferedInflight = canCache ? resourceInflight.get(key) : undefined;
   if (bufferedInflight) {
-    return { kind: "buffered", resource: await bufferedInflight };
+    return { kind: "buffered", resource: await bufferedInflight, cache: "in-flight" };
   }
 
-  let start = resourceStreamStarts.get(key);
+  let start = canCache ? resourceStreamStarts.get(key) : undefined;
   if (!start) {
     start = (async (): Promise<StreamingResource | RelayResource> => {
-      const timeout = createTimeout();
+      const headerController = new AbortController();
+      const abortBeforeStreaming = () => headerController.abort();
+      if (options.signal?.aborted) abortBeforeStreaming();
+      else options.signal?.addEventListener("abort", abortBeforeStreaming, { once: true });
       try {
         const { response, finalUrl } = await fetchWithRedirects(
           upstreamUrl,
-          UPSTREAM_HEADERS,
-          timeout.signal,
+          {
+            ...IPTV_UPSTREAM_HEADERS,
+            ...(range ? { Range: range } : {}),
+          },
+          headerController.signal,
         );
         assertStreamableUpstream(response);
+        const metadata = resourceMetadata(response, finalUrl);
+        const timing = getUpstreamTiming(response);
 
-        // Nested HLS playlists cannot be streamed because every upstream URI
-        // must first be replaced with an encrypted same-origin relay URI.
-        if (isPlaylistResponse(response, finalUrl) || !response.body) {
-          const bytes = await readResponseCapped(response, MAX_RESOURCE_BYTES, "Upstream resource");
+        let mediaBody = response.body;
+        let playlist = isPlaylistResponse(response, finalUrl);
+        if (!playlist && mediaBody) {
+          const reader = mediaBody.getReader();
+          const prefixChunks: Uint8Array<ArrayBufferLike>[] = [];
+          let prefixBytes = 0;
+          let bodyEnded = false;
+          while (prefixBytes < 16_384) {
+            const chunk = await reader.read();
+            if (chunk.done) {
+              bodyEnded = true;
+              break;
+            }
+            prefixChunks.push(chunk.value);
+            prefixBytes += chunk.value.byteLength;
+            const probe = new Uint8Array(Math.min(prefixBytes, 16_384));
+            let offset = 0;
+            for (const part of prefixChunks) {
+              probe.set(part.subarray(0, probe.byteLength - offset), offset);
+              offset += Math.min(part.byteLength, probe.byteLength - offset);
+              if (offset >= probe.byteLength) break;
+            }
+            const trimmed = new TextDecoder().decode(probe).trimStart();
+            if (trimmed.startsWith("#EXTM3U")) {
+              playlist = true;
+              break;
+            }
+            if (trimmed.length >= 7 && !"#EXTM3U".startsWith(trimmed)) break;
+          }
+          mediaBody = new ReadableStream<Uint8Array<ArrayBuffer>>({
+            start(controller) {
+              for (const chunk of prefixChunks) {
+                controller.enqueue(chunk as Uint8Array<ArrayBuffer>);
+              }
+              if (bodyEnded) controller.close();
+            },
+            async pull(controller) {
+              if (bodyEnded) return;
+              try {
+                const next = await reader.read();
+                if (next.done) controller.close();
+                else controller.enqueue(next.value as Uint8Array<ArrayBuffer>);
+              } catch (error) {
+                controller.error(error);
+              }
+            },
+            async cancel(reason) {
+              await reader.cancel(reason);
+            },
+          });
+        }
+        if (response.status === 458 && !playlist) {
+          await mediaBody?.cancel();
+          throw new IptvRelayUpstreamError(
+            429,
+            "Xtream connection limit reached. Stop the existing provider session and retry.",
+          );
+        }
+
+        // Nested HLS playlists must be buffered and rewritten before exposure.
+        if (playlist || !mediaBody) {
+          const playlistResponse = new Response(mediaBody, { headers: response.headers });
+          const bytes = await readResponseCapped(
+            playlistResponse,
+            MAX_PLAYLIST_BYTES,
+            "Upstream playlist",
+          );
           assertUsefulUpstream(response.status, bytes.byteLength);
+          const raw = new TextDecoder().decode(bytes);
+          if (!raw.trimStart().startsWith("#EXTM3U")) {
+            throw new IptvRelayUpstreamError(502, "Upstream did not return a valid HLS playlist");
+          }
           const entry: RelayResource = {
             fetchedAt: Date.now(),
             bytes,
-            contentType: response.headers.get("content-type") || "application/octet-stream",
-            finalUrl,
+            ...metadata,
+            contentType: "application/vnd.apple.mpegurl",
           };
-          if (bytes.byteLength <= MAX_CACHEABLE_RESOURCE_BYTES) {
+          if (canCache && bytes.byteLength <= MAX_CACHEABLE_RESOURCE_BYTES) {
             resourceCache.set(key, entry);
             resourceCacheBytes += bytes.byteLength;
             pruneResourceCache(Date.now());
-            void l2PutResource(key, entry);
           }
-          timeout.clear();
           resourceStreamStarts.delete(key);
           return entry;
         }
 
-        const [viewerBody, cacheBody] = response.body.tee();
-        const contentType = response.headers.get("content-type") || "application/octet-stream";
-        const declaredLength = response.headers.get("content-length");
+        if (!canCache || Number(metadata.contentLength || 0) > MAX_CACHEABLE_RESOURCE_BYTES) {
+          resourceStreamStarts.delete(key);
+          return {
+            claimed: false,
+            body: mediaBody,
+            resource: metadata,
+            upstreamTiming: timing,
+          };
+        }
+
+        const [viewerBody, cacheBody] = mediaBody.tee();
         const cacheResponse = new Response(cacheBody, {
           headers: {
-            "content-type": contentType,
-            ...(declaredLength ? { "content-length": declaredLength } : {}),
+            "content-type": metadata.contentType,
+            ...(metadata.contentLength ? { "content-length": metadata.contentLength } : {}),
           },
         });
         const completed = (async (): Promise<RelayResource> => {
           try {
             const bytes = await readResponseCapped(
               cacheResponse,
-              MAX_RESOURCE_BYTES,
+              MAX_CACHEABLE_RESOURCE_BYTES,
               "Upstream resource",
             );
             const entry: RelayResource = {
               fetchedAt: Date.now(),
               bytes,
-              contentType,
-              finalUrl,
+              ...metadata,
             };
             if (bytes.byteLength <= MAX_CACHEABLE_RESOURCE_BYTES) {
               resourceCache.set(key, entry);
               resourceCacheBytes += bytes.byteLength;
               pruneResourceCache(Date.now());
-              void l2PutResource(key, entry);
             }
             return entry;
           } finally {
-            timeout.clear();
             resourceInflight.delete(key);
             resourceStreamStarts.delete(key);
           }
@@ -586,37 +511,51 @@ export async function getSharedGlobalResourceResponse(
         return {
           claimed: false,
           body: viewerBody,
-          contentType,
-          finalUrl,
+          resource: metadata,
+          upstreamTiming: timing,
           completed,
         };
       } catch (error) {
-        timeout.clear();
         resourceStreamStarts.delete(key);
         if ((error as { name?: string } | null)?.name === "AbortError") {
-          throw new IptvRelayUpstreamError(504, "Upstream resource timed out");
+          const category = classifyUpstreamError(error);
+          throw new IptvRelayUpstreamError(
+            category === "client_abort" ? 499 : 504,
+            category === "client_abort"
+              ? "Client cancelled upstream resource"
+              : "Upstream resource timed out",
+          );
         }
         throw error;
+      } finally {
+        options.signal?.removeEventListener("abort", abortBeforeStreaming);
       }
     })();
-    resourceStreamStarts.set(key, start);
+    if (canCache) resourceStreamStarts.set(key, start);
   }
 
   const started = await start;
   if ("bytes" in started) {
     resourceStreamStarts.delete(key);
-    return { kind: "buffered", resource: started };
+    return { kind: "buffered", resource: started, cache: "hit" };
   }
   if (!started.claimed) {
     started.claimed = true;
     return {
       kind: "stream",
       body: started.body,
-      contentType: started.contentType,
-      finalUrl: started.finalUrl,
+      resource: started.resource,
+      cache: "miss",
+      upstreamTiming: started.upstreamTiming,
     };
   }
-  return { kind: "buffered", resource: await started.completed };
+  if (!started.completed) {
+    throw new IptvRelayUpstreamError(
+      502,
+      "Concurrent uncached resource request could not reuse body",
+    );
+  }
+  return { kind: "buffered", resource: await started.completed, cache: "in-flight" };
 }
 export function rewriteNestedRelayPlaylist(
   playlist: string,
