@@ -38,6 +38,12 @@ const lovableConfig = defineConfig({
   },
   vite: {
     plugins: [patchedMcpPlugin()],
+    server: {
+      headers: {
+        "X-Frame-Options": "ALLOWALL",
+        "Content-Security-Policy": "frame-ancestors *"
+      }
+    }
   },
   ...(nitroPreset ? { nitro: { preset: nitroPreset } } : {}),
 });
