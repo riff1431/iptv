@@ -136,6 +136,7 @@ export async function xtreamAuth(creds: IptvCredentials): Promise<{
   ok: boolean;
   message: string;
   server_info?: { url?: string; port?: string; https_port?: string };
+  max_connections?: string | number;
 }> {
   const base = normaliseBase(creds.server_url);
   const url = `${base}/player_api.php?username=${encodeURIComponent(
@@ -148,6 +149,7 @@ export async function xtreamAuth(creds: IptvCredentials): Promise<{
       ok: !!status,
       message: status ? "Authenticated" : (data?.user_info?.message ?? "Auth failed"),
       server_info: data?.server_info,
+      max_connections: data?.user_info?.max_connections,
     };
   } catch (e) {
     return { ok: false, message: e instanceof Error ? e.message : "Connection failed" };
@@ -347,10 +349,11 @@ export async function testConnection(creds: IptvCredentials): Promise<TestConnec
           channelCount: 0,
         };
       }
+      let maxConnStr = auth.max_connections != null ? ` (Max Connections: ${auth.max_connections})` : "";
       return {
         ok: true,
         code: "ok",
-        message: `Authenticated — ${channels.length} live channels available`,
+        message: `Authenticated — ${channels.length} live channels available${maxConnStr}`,
         channelCount: channels.length,
       };
     } catch (e) {
