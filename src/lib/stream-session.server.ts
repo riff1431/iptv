@@ -254,7 +254,13 @@ export async function getSharedPlaylist(
       const entry = {
         fetchedAt: Date.now(),
         upstreamUrl,
-        rewritten: rewritePlaylist(text, tv.id, upstream.url || upstreamUrl, segmentProxyPath),
+        rewritten: rewritePlaylist(
+          text,
+          tv.id,
+          upstream.url || upstreamUrl,
+          segmentProxyPath,
+          upstreamUrl, // Pass original URL to force HTTPS in Hybrid Proxy
+        ),
         channelId: tv.selected_channel_id!,
         timing,
         upstreamStatus: upstream.status,
@@ -412,6 +418,7 @@ async function getSharedSegmentInternal(
         tvId,
         upstream.url || upstreamUrl,
         options.segmentProxyPath ?? `/api/sports-arena/tv/${tvId}/seg`,
+        upstreamUrl,
       ),
       status: 200,
       headers: { "content-type": "application/vnd.apple.mpegurl; charset=utf-8" },

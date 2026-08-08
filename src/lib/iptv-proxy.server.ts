@@ -91,13 +91,31 @@ export function rewritePlaylist(
   tvId: string,
   upstreamPlaylistUrl: string,
   segmentProxyPath: string, // e.g. "/api/sports-arena/tv/<id>/seg"
+  originalRequestUrl?: string, // The original configured URL before redirects
 ): string {
   const base = new URL(upstreamPlaylistUrl);
+  let forceBase: URL | null = null;
+  if (originalRequestUrl) {
+    const orig = new URL(originalRequestUrl);
+    if (orig.protocol === "https:") forceBase = orig;
+  }
+
   const rewriteOne = (raw: string): string => {
     const trimmed = raw.trim();
     if (!trimmed) return raw;
-    const abs = new URL(trimmed, base).toString();
-    return `${segmentProxyPath}?${signSegmentUrl(tvId, abs)}`;
+    const abs = new URL(trimmed, base);
+    
+    // HYBRID PROXY: Let the browser fetch directly from the upstream provider!
+    // If the Admin UI is configured with HTTPS, but XUI redirects to an HTTP IP,
+    // force the URL back to the secure HTTPS hostname to prevent Mixed Content errors.
+    if (forceBase && abs.protocol === "http:") {
+      abs.protocol = forceBase.protocol;
+      abs.hostname = forceBase.hostname;
+      if (forceBase.port) abs.port = forceBase.port;
+      else abs.port = "";
+    }
+    
+    return abs.toString();
   };
 
   return playlist
@@ -106,8 +124,14 @@ export function rewritePlaylist(
       if (!line || line.startsWith("#")) {
         // Also rewrite URI="..." inside tags (EXT-X-KEY, EXT-X-MAP, EXT-X-MEDIA).
         return line.replace(/URI="([^"]+)"/g, (_m, uri: string) => {
-          const abs = new URL(uri, base).toString();
-          return `URI="${segmentProxyPath}?${signSegmentUrl(tvId, abs)}"`;
+          const abs = new URL(uri, base);
+          if (forceBase && abs.protocol === "http:") {
+            abs.protocol = forceBase.protocol;
+            abs.hostname = forceBase.hostname;
+            if (forceBase.port) abs.port = forceBase.port;
+            else abs.port = "";
+          }
+          return `URI="${abs.toString()}"`;
         });
       }
       return rewriteOne(line);
