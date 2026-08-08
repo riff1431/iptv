@@ -136,8 +136,7 @@ function streamToClient(
 function errorStatus(error: unknown): number {
   if (error instanceof UpstreamTimeoutError) return 504;
   if (error instanceof IptvUpstreamHttpError) {
-    if (error.status === 404 || error.status === 410 || error.status === 429) return error.status;
-    return 502;
+    return error.status; // Pass through exact upstream status (403, 401, 404, etc.)
   }
   return 502;
 }
