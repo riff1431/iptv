@@ -401,7 +401,10 @@ async function getSharedSegmentInternal(
 
   const headers: Record<string, string> = { ...IPTV_UPSTREAM_HEADERS };
   if (options.range) headers.Range = options.range;
-  const upstream = await customFetch(upstreamUrl, { headers, signal: options.signal });
+  const upstream = await customFetch(upstreamUrl, {
+    headers,
+    signal: options.range ? options.signal : undefined,
+  });
   const timing = getUpstreamTiming(upstream);
   const responseHeaders = preservedHeaders(upstream);
   if (upstream.status === 429) {
