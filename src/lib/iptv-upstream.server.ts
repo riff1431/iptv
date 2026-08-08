@@ -21,8 +21,8 @@ const ALLOWED_REQUEST_HEADERS = new Set([
   "user-agent",
 ]);
 
-const httpAgent = new http.Agent({ keepAlive: true, maxSockets: 500, maxFreeSockets: 100 });
-const httpsAgent = new https.Agent({ keepAlive: true, maxSockets: 500, maxFreeSockets: 100 });
+const httpAgent = new http.Agent({ keepAlive: false, maxSockets: 500, maxFreeSockets: 100 });
+const httpsAgent = new https.Agent({ keepAlive: false, maxSockets: 500, maxFreeSockets: 100 });
 
 function envInt(name: string, fallback: number, min: number, max: number): number {
   const value = Number(process.env[name]);
@@ -104,6 +104,7 @@ function safeRequestHeaders(
     if (ALLOWED_REQUEST_HEADERS.has(key.toLowerCase())) output[key] = value;
   }
   output.Host = target.host;
+  output.Connection = "close"; // Force close to prevent leaking active connections to IPTV providers
   return output;
 }
 
@@ -262,7 +263,15 @@ export async function customFetch(
         throw new Error("Too many IPTV upstream redirects");
       }
       await discardRedirect(response);
-      currentUrl = new URL(location, currentUrl);
+      const nextUrl = new URL(location, currentUrl);
+      // Xtream Codes often hardcodes its local HTTP IP in redirects.
+      // Force it to stay on the original hostname/protocol (e.g. Cloudflare) to prevent IP mismatch.
+      if (nextUrl.pathname.startsWith("/auth/")) {
+        nextUrl.protocol = currentUrl.protocol;
+        nextUrl.hostname = currentUrl.hostname;
+        nextUrl.port = currentUrl.port;
+      }
+      currentUrl = nextUrl;
       if (currentUrl.protocol !== "http:" && currentUrl.protocol !== "https:") {
         throw new Error("Unsupported IPTV redirect protocol");
       }
