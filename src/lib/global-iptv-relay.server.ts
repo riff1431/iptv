@@ -6,28 +6,21 @@ import {
   IPTV_UPSTREAM_HEADERS,
   type UpstreamTiming,
 } from "@/lib/iptv-upstream.server";
+import { getIptvSegmentCacheConfig } from "@/lib/iptv-segment-cache-config";
 
 const PLAYLIST_TTL_MS = 4_000;
 const PLAYLIST_STALE_MS = 30_000;
 const PLAYLIST_CACHE_MAX = 32;
 const MAX_PLAYLIST_BYTES = 2 * 1024 * 1024;
 
-function envInt(name: string, fallback: number, min: number, max: number): number {
-  const value = Number(process.env[name]);
-  return Number.isFinite(value) ? Math.min(max, Math.max(min, Math.round(value))) : fallback;
-}
-
-const RESOURCE_TTL_MS = envInt("IPTV_SEGMENT_CACHE_TTL_MS", 20_000, 1_000, 120_000);
-const MAX_RESOURCE_CACHE_BYTES = envInt(
-  "IPTV_SEGMENT_CACHE_TOTAL_MAX_BYTES",
-  64 * 1024 * 1024,
-  8 * 1024 * 1024,
-  512 * 1024 * 1024,
-);
-const MAX_CACHEABLE_RESOURCE_BYTES = Math.min(
-  MAX_RESOURCE_CACHE_BYTES,
-  envInt("IPTV_SEGMENT_CACHE_ITEM_MAX_BYTES", 8 * 1024 * 1024, 64 * 1024, 64 * 1024 * 1024),
-);
+// Cache limits + force-override floors are shared with stream-session.server.ts
+// (Sports Arena) via getIptvSegmentCacheConfig() so the two relays can never
+// drift. Defaults: 50 MB per item, 500 MB total — and stale 8 MiB env values
+// from older deployments are overridden, so HD/4K segments no longer 502.
+const _segmentCacheConfig = getIptvSegmentCacheConfig();
+const RESOURCE_TTL_MS = _segmentCacheConfig.ttlMs;
+const MAX_RESOURCE_CACHE_BYTES = _segmentCacheConfig.totalMaxBytes;
+const MAX_CACHEABLE_RESOURCE_BYTES = _segmentCacheConfig.itemMaxBytes;
 
 type PlaylistEntry = {
   fetchedAt: number;

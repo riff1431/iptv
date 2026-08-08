@@ -13,6 +13,9 @@ process.env.IPTV_PROXY_SIGNING_KEY = "test-signing-key-for-vitest-0000000000";
 process.env.IPTV_SEGMENT_CACHE_TTL_MS = "20000";
 process.env.IPTV_SEGMENT_CACHE_ITEM_MAX_BYTES = "800000";
 process.env.IPTV_SEGMENT_CACHE_TOTAL_MAX_BYTES = "1048576";
+// These tests exercise eviction at small limits, so disable the 50 MB / 500 MB
+// production floors enforced by getIptvSegmentCacheConfig().
+process.env.IPTV_SEGMENT_CACHE_DISABLE_FLOOR = "1";
 process.env.IPTV_SEGMENT_MAX_ATTEMPTS = "1";
 
 const TV_ID = "00000000-0000-4000-8000-000000000001";
@@ -172,11 +175,13 @@ describe("Sports Arena canonical segment relay", () => {
     expect(stats.entries).toBe(1);
   });
 
-  it("does not cache a resource above the per-item byte limit", async () => {
+  it("rejects a resource above the per-item byte limit without caching it", async () => {
     process.env.IPTV_SEGMENT_CACHE_ITEM_MAX_BYTES = "64000";
     try {
       const response = await handleSegRequest(request("/oversize.ts"), TV_ID);
-      expect((await response.arrayBuffer()).byteLength).toBe(70_000);
+      // The buffering relay rejects oversized segments (502) rather than
+      // streaming them through, and never caches them.
+      expect(response.status).toBe(502);
       await new Promise((resolve) => setTimeout(resolve, 20));
       expect(getSegmentCacheStatsForTests().entries).toBe(0);
     } finally {

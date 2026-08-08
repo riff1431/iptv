@@ -32,14 +32,14 @@ IPTV_UPSTREAM_IDLE_TIMEOUT_MS=20000
 IPTV_SEGMENT_MAX_ATTEMPTS=2
 
 IPTV_SEGMENT_CACHE_TTL_MS=20000
-IPTV_SEGMENT_CACHE_ITEM_MAX_BYTES=8388608
-IPTV_SEGMENT_CACHE_TOTAL_MAX_BYTES=67108864
+IPTV_SEGMENT_CACHE_ITEM_MAX_BYTES=52428800
+IPTV_SEGMENT_CACHE_TOTAL_MAX_BYTES=524288000
 ```
 
 Keep the existing Supabase server variables and IPTV encrypted-secret variables
-configured as before. A 64 MiB segment cache needs memory headroom for Node,
-rendering, and temporary stream chunks; provision at least several hundred MiB
-and confirm actual usage with `docker stats` during playback.
+configured as before. Each relay (Sports Arena and the public channel flow) can
+use up to ~500 MiB of segment cache in RAM, so provision at least 1 GiB and
+confirm actual usage with `docker stats` during playback.
 
 ## Timing diagnosis
 

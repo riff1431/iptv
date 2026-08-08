@@ -372,13 +372,17 @@ export function IPTVPlayer({ url, poster }: Props) {
       hls = new Hls({
         enableWorker: true,
         progressive: true,
-        // IPTV-tuned live settings — generous network tolerance, relaxed polling.
-        lowLatencyMode: true,
-        backBufferLength: 5,
-        maxBufferLength: 10,
-        maxMaxBufferLength: 20,
-        liveSyncDurationCount: 3,
-        liveMaxLatencyDurationCount: 6,
+        // Production-safe live settings. The relay fully buffers each segment
+        // server-side before responding (TTFB ≈ full download time), so we keep a
+        // generous forward buffer and disable LL-HLS edge-chasing — lowLatencyMode
+        // with standard 10s segments causes constant rebuffering in production.
+        // Values are locked by IPTVPlayer.playback.test.tsx.
+        lowLatencyMode: false,
+        backBufferLength: 30,
+        maxBufferLength: 60,
+        maxMaxBufferLength: 120,
+        liveSyncDurationCount: 6,
+        liveMaxLatencyDurationCount: 12,
         manifestLoadPolicy: stableLoadPolicy(15_000, 30_000),
         playlistLoadPolicy: stableLoadPolicy(15_000, 30_000),
         fragLoadPolicy: stableLoadPolicy(15_000, 60_000),

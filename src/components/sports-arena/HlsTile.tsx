@@ -182,12 +182,15 @@ export function HlsTile({
             }
           },
           liveDurationInfinity: true,
-          lowLatencyMode: true,
-          backBufferLength: 5,
-          maxBufferLength: 10,
-          maxMaxBufferLength: 20,
+          // Match the proven Arena player (HlsPlayer.tsx): disable LL-HLS
+          // edge-chasing and keep a 30s forward buffer so lounge tiles don't
+          // rebuffer under production RTT + the relay's full-buffer-first TTFB.
+          lowLatencyMode: false,
+          backBufferLength: 10,
+          maxBufferLength: 30,
+          maxMaxBufferLength: 60,
           liveSyncDurationCount: 3,
-          liveMaxLatencyDurationCount: 6,
+          liveMaxLatencyDurationCount: 7,
           manifestLoadPolicy: stableLoadPolicy(15_000, 30_000),
           playlistLoadPolicy: stableLoadPolicy(15_000, 30_000),
           fragLoadPolicy: stableLoadPolicy(15_000, 60_000),

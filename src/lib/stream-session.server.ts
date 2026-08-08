@@ -15,38 +15,15 @@ import {
   customFetch,
   type UpstreamTiming,
 } from "@/lib/iptv-upstream.server";
-
-function envInt(name: string, fallback: number, min: number, max: number): number {
-  const value = Number(process.env[name]);
-  return Number.isFinite(value) ? Math.min(max, Math.max(min, Math.round(value))) : fallback;
-}
+import { getIptvSegmentCacheConfig } from "@/lib/iptv-segment-cache-config";
 
 const PLAYLIST_TTL_MS = 4_000;
 const PLAYLIST_MAX_BYTES = 1_048_576;
 
+// Cache limits + force-override floors live in the shared helper so the Arena
+// relay and the public relay (global-iptv-relay.server.ts) can never drift.
 function segmentConfig() {
-  let totalMaxBytes = envInt(
-    "IPTV_SEGMENT_CACHE_TOTAL_MAX_BYTES",
-    524_288_000, // 500 MB default
-    1_048_576,
-    1024 * 1024 * 1024, // 1 GB max
-  );
-  let requestedItemMaxBytes = envInt(
-    "IPTV_SEGMENT_CACHE_ITEM_MAX_BYTES",
-    52_428_800, // 50 MB default
-    64_000,
-    128 * 1024 * 1024, // 128 MB max
-  );
-  
-  // Force override any small env variables from old deployments
-  if (requestedItemMaxBytes < 52_428_800) requestedItemMaxBytes = 52_428_800;
-  if (totalMaxBytes < 524_288_000) totalMaxBytes = 524_288_000;
-
-  return {
-    ttlMs: envInt("IPTV_SEGMENT_CACHE_TTL_MS", 20_000, 1_000, 120_000),
-    itemMaxBytes: Math.min(requestedItemMaxBytes, totalMaxBytes),
-    totalMaxBytes,
-  };
+  return getIptvSegmentCacheConfig();
 }
 
 type PlaylistEntry = {
