@@ -473,9 +473,47 @@ async function getSharedSegmentInternal(
     };
   }
 
+  const declared = Number(responseHeaders["content-length"]);
+
+  // Buffer the entire segment in server RAM before sending to client.
+  // This prevents slow clients (Bangladesh -> VPS) from holding the XUI socket open
+  // for 30+ seconds, causing XUI connection limits and timeouts.
+  const max = segmentConfig().itemMaxBytes;
+  const reader = body.getReader();
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  try {
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      total += value.byteLength;
+      if (total > max) {
+        void reader.cancel("segment too large to buffer");
+        throw new IptvUpstreamHttpError(502, "IPTV segment too large to buffer");
+      }
+      chunks.push(value);
+    }
+  } finally {
+    reader.releaseLock();
+  }
+
+  if (Number.isFinite(declared) && declared > 0 && declared !== total) {
+    console.warn(`[iptv] segment content-length mismatch: expected ${declared}, got ${total}`);
+  }
+
+  const bytes = new Uint8Array(total);
+  let offset = 0;
+  for (const chunk of chunks) {
+    bytes.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+
+  const entry: SegmentEntry = { fetchedAt: Date.now(), bytes, status: upstream.status, headers: responseHeaders };
+  putSegment(key, entry);
+
   return {
-    kind: "stream",
-    body,
+    kind: "buffered",
+    bytes,
     status: upstream.status,
     headers: responseHeaders,
     cache: "miss",
