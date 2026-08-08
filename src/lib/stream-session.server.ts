@@ -472,12 +472,51 @@ async function getSharedSegmentInternal(
 
   const declared = Number(responseHeaders["content-length"]);
 
-  // BYPASS SEGMENT CACHING COMPLETELY
-  // This turns the proxy into a pure, direct pipe to XUI, eliminating any
-  // potential deadlocks or memory bottlenecks from Node.js tee() behavior.
+  // Buffer the entire segment in server RAM before sending to client.
+  // Live-main uses this exact pattern. Reason: if we stream directly (kind:"stream"),
+  // slow clients (Bangladesh → USA) hold the XUI TCP socket open for 30+ seconds
+  // causing massive backpressure and the "Stream is taking too long" timeout.
+  // By buffering here we pull from XUI at ~1 Gbps, release the socket immediately,
+  // then serve the buffer to the client at whatever speed they can handle.
+  const max = segmentConfig().itemMaxBytes;
+  const reader = body.getReader();
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  try {
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      total += value.byteLength;
+      if (total > max) {
+        void reader.cancel("segment too large to buffer");
+        // Fall back to streaming for very large segments
+        throw new IptvUpstreamHttpError(502, "IPTV segment too large to buffer");
+      }
+      chunks.push(value);
+    }
+  } finally {
+    reader.releaseLock();
+  }
+
+  // Validate content-length if provided
+  if (Number.isFinite(declared) && declared > 0 && declared !== total) {
+    console.warn(`[iptv] segment content-length mismatch: expected ${declared}, got ${total}`);
+  }
+
+  const bytes = new Uint8Array(total);
+  let offset = 0;
+  for (const chunk of chunks) {
+    bytes.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+
+  // Cache it for subsequent duplicate requests (e.g. 4 TVs on same channel)
+  const entry: SegmentEntry = { fetchedAt: Date.now(), bytes, status: upstream.status, headers: responseHeaders };
+  putSegment(key, entry);
+
   return {
-    kind: "stream",
-    body,
+    kind: "buffered",
+    bytes,
     status: upstream.status,
     headers: responseHeaders,
     cache: "miss",
