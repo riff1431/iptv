@@ -466,55 +466,33 @@ export async function getSharedGlobalResourceResponse(
           return entry;
         }
 
-        if (!canCache || Number(metadata.contentLength || 0) > MAX_CACHEABLE_RESOURCE_BYTES) {
-          resourceStreamStarts.delete(key);
-          return {
-            claimed: false,
-            body: mediaBody,
-            resource: metadata,
-            upstreamTiming: timing,
-          };
-        }
-
-        const [viewerBody, cacheBody] = mediaBody.tee();
-        const cacheResponse = new Response(cacheBody, {
-          headers: {
-            "content-type": metadata.contentType,
-            ...(metadata.contentLength ? { "content-length": metadata.contentLength } : {}),
-          },
-        });
-        const completed = (async (): Promise<RelayResource> => {
-          try {
-            const bytes = await readResponseCapped(
-              cacheResponse,
-              MAX_CACHEABLE_RESOURCE_BYTES,
-              "Upstream resource",
-            );
-            const entry: RelayResource = {
-              fetchedAt: Date.now(),
-              bytes,
-              ...metadata,
-            };
-            if (bytes.byteLength <= MAX_CACHEABLE_RESOURCE_BYTES) {
-              resourceCache.set(key, entry);
-              resourceCacheBytes += bytes.byteLength;
-              pruneResourceCache(Date.now());
-            }
-            return entry;
-          } finally {
-            resourceInflight.delete(key);
-            resourceStreamStarts.delete(key);
-          }
-        })();
-        resourceInflight.set(key, completed);
-        void completed.catch(() => {});
-        return {
-          claimed: false,
-          body: viewerBody,
-          resource: metadata,
-          upstreamTiming: timing,
-          completed,
+        // Buffer the full resource in RAM before returning.
+        // Using tee() here causes a deadlock: the viewer's slow connection
+        // holds backpressure on the cacheBody branch, stalling the upstream socket.
+        // Instead: buffer everything fast (server-to-server is ~1Gbps), release socket,
+        // serve from RAM. This is exactly what live-main does.
+        const bytes = await readResponseCapped(
+          new Response(mediaBody, {
+            headers: {
+              "content-type": metadata.contentType,
+              ...(metadata.contentLength ? { "content-length": metadata.contentLength } : {}),
+            },
+          }),
+          MAX_CACHEABLE_RESOURCE_BYTES,
+          "Upstream resource",
+        );
+        const entry: RelayResource = {
+          fetchedAt: Date.now(),
+          bytes,
+          ...metadata,
         };
+        if (bytes.byteLength <= MAX_CACHEABLE_RESOURCE_BYTES) {
+          resourceCache.set(key, entry);
+          resourceCacheBytes += bytes.byteLength;
+          pruneResourceCache(Date.now());
+        }
+        resourceStreamStarts.delete(key);
+        return entry;
       } catch (error) {
         resourceStreamStarts.delete(key);
         if ((error as { name?: string } | null)?.name === "AbortError") {
@@ -535,27 +513,10 @@ export async function getSharedGlobalResourceResponse(
   }
 
   const started = await start;
-  if ("bytes" in started) {
-    resourceStreamStarts.delete(key);
-    return { kind: "buffered", resource: started, cache: "hit" };
-  }
-  if (!started.claimed) {
-    started.claimed = true;
-    return {
-      kind: "stream",
-      body: started.body,
-      resource: started.resource,
-      cache: "miss",
-      upstreamTiming: started.upstreamTiming,
-    };
-  }
-  if (!started.completed) {
-    throw new IptvRelayUpstreamError(
-      502,
-      "Concurrent uncached resource request could not reuse body",
-    );
-  }
-  return { kind: "buffered", resource: await started.completed, cache: "in-flight" };
+  resourceStreamStarts.delete(key);
+  // All paths now fully buffer before returning — no streaming kind.
+  const resource = started as RelayResource;
+  return { kind: "buffered", resource, cache: "hit" };
 }
 export function rewriteNestedRelayPlaylist(
   playlist: string,

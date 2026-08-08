@@ -53,7 +53,7 @@ async function validateBearer(token: string): Promise<boolean> {
   });
   const { data, error } = await client.auth.getUser(token);
   if (error || !data.user) return false;
-  putBounded(authCache, key, { value: true, expiresAt: Date.now() + 20_000 });
+  putBounded(authCache, key, { value: true, expiresAt: Date.now() + 300_000 }); // 5 min — JWT expiry is much longer
   return true;
 }
 
@@ -71,7 +71,7 @@ async function getTv(tvId: string): Promise<TvRowForStream | null> {
   if (error) throw new Error("TV configuration lookup failed");
   if (!data) return null;
   const tv = data as TvRowForStream;
-  putBounded(tvCache, tvId, { value: tv, expiresAt: Date.now() + 5_000 });
+  putBounded(tvCache, tvId, { value: tv, expiresAt: Date.now() + 30_000 }); // 30s — TV config rarely changes mid-stream
   return tv;
 }
 
