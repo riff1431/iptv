@@ -21,8 +21,8 @@ const ALLOWED_REQUEST_HEADERS = new Set([
   "user-agent",
 ]);
 
-const httpAgent = new http.Agent({ keepAlive: false, maxSockets: 32, maxFreeSockets: 8 });
-const httpsAgent = new https.Agent({ keepAlive: false, maxSockets: 32, maxFreeSockets: 8 });
+const httpAgent = new http.Agent({ keepAlive: false, maxSockets: 500, maxFreeSockets: 100 });
+const httpsAgent = new https.Agent({ keepAlive: false, maxSockets: 500, maxFreeSockets: 100 });
 
 function envInt(name: string, fallback: number, min: number, max: number): number {
   const value = Number(process.env[name]);
