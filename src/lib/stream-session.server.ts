@@ -315,9 +315,12 @@ async function sniffBody(
   const rebuilt = new ReadableStream<Uint8Array>({
     start(controller) {
       if (prefix.byteLength) controller.enqueue(prefix);
+      // If the very first read was already done, there is no more data.
+      // Close the stream here so pull() never runs on an already-done reader.
       if (first.done) controller.close();
     },
     async pull(controller) {
+      // first.done means we already closed in start()
       if (first.done) return;
       try {
         const next = await reader.read();

@@ -237,7 +237,7 @@ export async function customFetch(
   const headersTimeoutMs =
     options.headersTimeoutMs ?? envInt("IPTV_UPSTREAM_HEADERS_TIMEOUT_MS", 10_000, 500, 60_000);
   const idleTimeoutMs =
-    options.idleTimeoutMs ?? envInt("IPTV_UPSTREAM_IDLE_TIMEOUT_MS", 20_000, 1_000, 120_000);
+    options.idleTimeoutMs ?? envInt("IPTV_UPSTREAM_IDLE_TIMEOUT_MS", 40_000, 1_000, 120_000);
   let currentUrl = new URL(initialUrl);
   let redirectCount = 0;
 

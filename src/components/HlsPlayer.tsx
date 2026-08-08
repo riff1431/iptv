@@ -204,15 +204,21 @@ export function HlsPlayer({
     if (isHls && Hls.isSupported()) {
       const hls = new Hls({
         enableWorker: true,
-        lowLatencyMode: true,
-        backBufferLength: 5,
-        maxBufferLength: 10,
-        maxMaxBufferLength: 20,
+        // XUI sends standard HLS (10-second segments), NOT LL-HLS.
+        // lowLatencyMode:true with large segments causes constant rebuffering
+        // as hls.js chases the live edge with an impossibly thin buffer.
+        lowLatencyMode: false,
+        // Give enough buffer for 3–4 large 10s segments (~30s = comfortable cushion)
+        backBufferLength: 10,
+        maxBufferLength: 30,
+        maxMaxBufferLength: 60,
         liveSyncDurationCount: 3,
-        liveMaxLatencyDurationCount: 6,
+        liveMaxLatencyDurationCount: 7,
+        // Our proxy buffers the full segment server-side before responding,
+        // so first-byte latency = full download time (~2-3s). Set timeouts accordingly.
         manifestLoadPolicy: stableLoadPolicy(15_000, 30_000),
-        playlistLoadPolicy: stableLoadPolicy(15_000, 30_000),
-        fragLoadPolicy: stableLoadPolicy(15_000, 60_000),
+        playlistLoadPolicy: stableLoadPolicy(8_000, 15_000),
+        fragLoadPolicy: stableLoadPolicy(15_000, 20_000),
         xhrSetup: attachSameOriginAuth,
       });
       hlsRef.current = hls;
