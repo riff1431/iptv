@@ -373,16 +373,15 @@ export function IPTVPlayer({ url, poster }: Props) {
         enableWorker: true,
         progressive: true,
         // IPTV-tuned live settings — generous network tolerance, relaxed polling.
-        lowLatencyMode: false, // Turn off aggressive sub-second polling to eliminate HTTP 458 provider line locks
-        liveSyncDurationCount: 6,
-        liveMaxLatencyDurationCount: 12,
-        backBufferLength: 30,
-        maxBufferLength: 60,
-        maxMaxBufferLength: 120,
-        startFragPrefetch: true,
-        manifestLoadPolicy: stableLoadPolicy(10_000, 30_000),
-        playlistLoadPolicy: stableLoadPolicy(10_000, 30_000),
-        fragLoadPolicy: stableLoadPolicy(15_000, 120_000),
+        lowLatencyMode: true,
+        backBufferLength: 5,
+        maxBufferLength: 10,
+        maxMaxBufferLength: 20,
+        liveSyncDurationCount: 3,
+        liveMaxLatencyDurationCount: 6,
+        manifestLoadPolicy: stableLoadPolicy(15_000, 30_000),
+        playlistLoadPolicy: stableLoadPolicy(15_000, 30_000),
+        fragLoadPolicy: stableLoadPolicy(15_000, 60_000),
       });
 
       hls.on(Hls.Events.MANIFEST_LOADING, () => {

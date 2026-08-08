@@ -182,15 +182,15 @@ export function HlsTile({
             }
           },
           liveDurationInfinity: true,
-          lowLatencyMode: false,
-          backBufferLength: 30,
-          maxBufferLength: 60,
-          maxMaxBufferLength: 120,
-          liveSyncDurationCount: 6,
-          liveMaxLatencyDurationCount: 12,
-          manifestLoadPolicy: stableLoadPolicy(10_000, 30_000),
-          playlistLoadPolicy: stableLoadPolicy(10_000, 30_000),
-          fragLoadPolicy: stableLoadPolicy(15_000, 120_000),
+          lowLatencyMode: true,
+          backBufferLength: 5,
+          maxBufferLength: 10,
+          maxMaxBufferLength: 20,
+          liveSyncDurationCount: 3,
+          liveMaxLatencyDurationCount: 6,
+          manifestLoadPolicy: stableLoadPolicy(15_000, 30_000),
+          playlistLoadPolicy: stableLoadPolicy(15_000, 30_000),
+          fragLoadPolicy: stableLoadPolicy(15_000, 60_000),
         });
         hlsRef.current = hls;
         // Match the proven Arena attachment sequence.
@@ -252,7 +252,7 @@ export function HlsTile({
           if (cancelled || video.paused || Date.now() - lastProgressAt < 6_000) return;
           if (video.seekable.length) {
             const liveEdge = video.seekable.end(video.seekable.length - 1);
-            if (liveEdge - video.currentTime > 30) {
+            if (liveEdge - video.currentTime > 45) {
               const safeTarget = hls.liveSyncPosition ?? liveEdge - 12;
               video.currentTime = Math.max(
                 video.seekable.start(0),
@@ -261,7 +261,7 @@ export function HlsTile({
             }
           }
           onWaiting();
-        }, 2_000);
+        }, 5_000);
       } else if (!video.canPlayType("application/vnd.apple.mpegurl")) {
         fail("HLS not supported in this browser");
       } else {

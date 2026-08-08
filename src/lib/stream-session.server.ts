@@ -21,7 +21,7 @@ function envInt(name: string, fallback: number, min: number, max: number): numbe
   return Number.isFinite(value) ? Math.min(max, Math.max(min, Math.round(value))) : fallback;
 }
 
-const PLAYLIST_TTL_MS = 2_500;
+const PLAYLIST_TTL_MS = 4_000;
 const PLAYLIST_MAX_BYTES = 1_048_576;
 
 function segmentConfig() {
@@ -466,29 +466,13 @@ async function getSharedSegmentInternal(
   }
 
   const declared = Number(responseHeaders["content-length"]);
-  const cacheable =
-    !ranged && (!Number.isFinite(declared) || declared <= segmentConfig().itemMaxBytes);
-  if (!cacheable)
-    return {
-      kind: "stream",
-      body,
-      status: upstream.status,
-      headers: responseHeaders,
-      cache: "miss",
-      timing,
-    };
 
-  const [viewerBody, cacheBody] = body.tee();
-  const completed = bufferCacheBranch(key, cacheBody, upstream.status, responseHeaders).finally(
-    () => {
-      segmentInflight.delete(key);
-    },
-  );
-  segmentInflight.set(key, completed);
-  void completed.catch(() => {});
+  // BYPASS SEGMENT CACHING COMPLETELY
+  // This turns the proxy into a pure, direct pipe to XUI, eliminating any
+  // potential deadlocks or memory bottlenecks from Node.js tee() behavior.
   return {
     kind: "stream",
-    body: viewerBody,
+    body,
     status: upstream.status,
     headers: responseHeaders,
     cache: "miss",

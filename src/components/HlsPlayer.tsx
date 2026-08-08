@@ -210,9 +210,9 @@ export function HlsPlayer({
         maxMaxBufferLength: 20,
         liveSyncDurationCount: 3,
         liveMaxLatencyDurationCount: 6,
-        manifestLoadPolicy: stableLoadPolicy(5_000, 15_000),
-        playlistLoadPolicy: stableLoadPolicy(5_000, 15_000),
-        fragLoadPolicy: stableLoadPolicy(8_000, 30_000),
+        manifestLoadPolicy: stableLoadPolicy(15_000, 30_000),
+        playlistLoadPolicy: stableLoadPolicy(15_000, 30_000),
+        fragLoadPolicy: stableLoadPolicy(15_000, 60_000),
         xhrSetup: attachSameOriginAuth,
       });
       hlsRef.current = hls;
