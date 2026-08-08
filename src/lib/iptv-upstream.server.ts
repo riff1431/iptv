@@ -21,8 +21,8 @@ const ALLOWED_REQUEST_HEADERS = new Set([
   "user-agent",
 ]);
 
-const httpAgent = new http.Agent({ keepAlive: false, maxSockets: 500, maxFreeSockets: 100 });
-const httpsAgent = new https.Agent({ keepAlive: false, maxSockets: 500, maxFreeSockets: 100 });
+const httpAgent = new http.Agent({ keepAlive: true, maxSockets: 500, maxFreeSockets: 100 });
+const httpsAgent = new https.Agent({ keepAlive: true, maxSockets: 500, maxFreeSockets: 100 });
 
 function envInt(name: string, fallback: number, min: number, max: number): number {
   const value = Number(process.env[name]);
@@ -104,7 +104,6 @@ function safeRequestHeaders(
     if (ALLOWED_REQUEST_HEADERS.has(key.toLowerCase())) output[key] = value;
   }
   output.Host = target.host;
-  output.Connection = "close"; // Force close to prevent leaking active connections to IPTV providers
   return output;
 }
 
