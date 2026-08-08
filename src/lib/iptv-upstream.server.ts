@@ -320,7 +320,6 @@ export async function customFetch(
       });
       response.on("end", () => resolve(new Uint8Array(Buffer.concat(chunks))));
       response.on("error", reject);
-      response.on("close", () => resolve(new Uint8Array(Buffer.concat(chunks))));
     });
 
     timing.endedAt = Date.now();
