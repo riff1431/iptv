@@ -105,9 +105,9 @@ export function rewritePlaylist(
     if (!trimmed) return raw;
     const abs = new URL(trimmed, base);
     
-    // HYBRID PROXY: Let the browser fetch directly from the upstream provider!
-    // If the Admin UI is configured with HTTPS, but XUI redirects to an HTTP IP,
-    // force the URL back to the secure HTTPS hostname to prevent Mixed Content errors.
+    // XUI locks segment tokens to the IP that fetched the playlist.
+    // If we use Hybrid Proxy, Cloudflare edge nodes will have different IPs, causing 404s.
+    // Therefore, we MUST proxy all segments through our server (Dokploy).
     if (forceBase && abs.protocol === "http:") {
       abs.protocol = forceBase.protocol;
       abs.hostname = forceBase.hostname;
@@ -115,7 +115,7 @@ export function rewritePlaylist(
       else abs.port = "";
     }
     
-    return abs.toString();
+    return `${segmentProxyPath}?${signSegmentUrl(tvId, abs.toString())}`;
   };
 
   return playlist
@@ -131,7 +131,7 @@ export function rewritePlaylist(
             if (forceBase.port) abs.port = forceBase.port;
             else abs.port = "";
           }
-          return `URI="${abs.toString()}"`;
+          return `URI="${segmentProxyPath}?${signSegmentUrl(tvId, abs.toString())}"`;
         });
       }
       return rewriteOne(line);
