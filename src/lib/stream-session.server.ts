@@ -25,18 +25,23 @@ const PLAYLIST_TTL_MS = 4_000;
 const PLAYLIST_MAX_BYTES = 1_048_576;
 
 function segmentConfig() {
-  const totalMaxBytes = envInt(
+  let totalMaxBytes = envInt(
     "IPTV_SEGMENT_CACHE_TOTAL_MAX_BYTES",
     524_288_000, // 500 MB default
     1_048_576,
     1024 * 1024 * 1024, // 1 GB max
   );
-  const requestedItemMaxBytes = envInt(
+  let requestedItemMaxBytes = envInt(
     "IPTV_SEGMENT_CACHE_ITEM_MAX_BYTES",
     52_428_800, // 50 MB default
     64_000,
     128 * 1024 * 1024, // 128 MB max
   );
+  
+  // Force override any small env variables from old deployments
+  if (requestedItemMaxBytes < 52_428_800) requestedItemMaxBytes = 52_428_800;
+  if (totalMaxBytes < 524_288_000) totalMaxBytes = 524_288_000;
+
   return {
     ttlMs: envInt("IPTV_SEGMENT_CACHE_TTL_MS", 20_000, 1_000, 120_000),
     itemMaxBytes: Math.min(requestedItemMaxBytes, totalMaxBytes),
