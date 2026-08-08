@@ -21,8 +21,8 @@ const ALLOWED_REQUEST_HEADERS = new Set([
   "user-agent",
 ]);
 
-const httpAgent = new http.Agent({ keepAlive: true, keepAliveMsecs: 5000, maxSockets: 128, maxFreeSockets: 16 });
-const httpsAgent = new https.Agent({ keepAlive: true, keepAliveMsecs: 5000, maxSockets: 128, maxFreeSockets: 16 });
+const httpAgent = new http.Agent({ keepAlive: false, maxSockets: 32, maxFreeSockets: 8 });
+const httpsAgent = new https.Agent({ keepAlive: false, maxSockets: 32, maxFreeSockets: 8 });
 
 function envInt(name: string, fallback: number, min: number, max: number): number {
   const value = Number(process.env[name]);
@@ -102,8 +102,7 @@ function safeRequestHeaders(
     if (ALLOWED_REQUEST_HEADERS.has(key.toLowerCase())) output[key] = value;
   }
   output.Host = target.host;
-  // Allow keep-alive to reuse TCP connections for segment fetching (improves TTFB massively)
-  // output.Connection = "close"; 
+  output.Connection = "close"; // Force close to prevent leaking active connections to IPTV providers
   return output;
 }
 
