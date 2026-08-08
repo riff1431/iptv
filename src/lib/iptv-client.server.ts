@@ -208,6 +208,12 @@ export function xtreamStreamUrl(creds: IptvCredentials, channelId: string): stri
 const EXTINF_RE = /^#EXTINF:[^,]*,(.*)$/;
 const ATTR_RE = /([\w-]+)="([^"]*)"/g;
 
+export function isUsablePlaylistResponse(status: number, text: string): boolean {
+  if (status !== 200) return false;
+  const upper = text.toUpperCase();
+  return upper.includes("#EXTM3U") && (upper.includes("#EXTINF") || upper.includes("#EXT-X-STREAM-INF") || upper.includes("#EXT-X-TARGETDURATION"));
+}
+
 export function parseM3U(text: string): IptvChannel[] {
   const lines = text.split(/\r?\n/);
   const out: IptvChannel[] = [];

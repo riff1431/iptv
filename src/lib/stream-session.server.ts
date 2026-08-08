@@ -248,10 +248,8 @@ export async function getSharedPlaylist(
       const xtreamError = getXtreamPlaylistError(upstream.status, text);
       if (xtreamError) throw new IptvUpstreamHttpError(429, xtreamError, false);
       if (!isUsablePlaylistResponse(upstream.status, text)) {
-        throw new IptvUpstreamHttpError(
-          upstream.status >= 400 ? upstream.status : 502,
-          "Invalid IPTV upstream manifest",
-        );
+        console.error("INVALID PLAYLIST RECEIVED:", text.slice(0, 1000));
+        throw new IptvUpstreamHttpError(502, "Invalid IPTV upstream manifest", false);
       }
       const entry = {
         fetchedAt: Date.now(),

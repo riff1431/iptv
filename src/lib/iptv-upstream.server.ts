@@ -82,7 +82,9 @@ export function isHlsManifestBody(body: string): boolean {
 }
 
 export function isUsablePlaylistResponse(status: number, body: string): boolean {
-  return ((status >= 200 && status < 300) || status === 458) && isHlsManifestBody(body);
+  if (!((status >= 200 && status < 300) || status === 458)) return false;
+  const upper = body.toUpperCase();
+  return upper.includes("#EXTM3U") && (upper.includes("#EXTINF") || upper.includes("#EXT-X-STREAM-INF") || upper.includes("#EXT-X-TARGETDURATION"));
 }
 
 export function getXtreamPlaylistError(status: number, body: string): string | null {
