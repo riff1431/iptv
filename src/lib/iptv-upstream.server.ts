@@ -286,45 +286,41 @@ export async function customFetch(
       bytes: 0,
       redirectCount,
     };
-    response.once("end", () => {
-      timing.endedAt = Date.now();
-    });
-    response.once("close", () => {
-      timing.endedAt ??= Date.now();
-    });
 
     const noBody = method === "HEAD" || status === 204 || status === 205 || status === 304;
-    
-    if (noBody) {
-      const result = new Response(null, {
-        status,
-        statusText: response.statusMessage ?? "",
-        headers: responseHeaders(response.headers),
-      });
-      Object.defineProperty(result, "url", { value: currentUrl.toString(), configurable: true });
-      timingByResponse.set(result, timing);
-      return result;
-    }
 
-    // Buffer the entire response body before resolving.
-    // Streaming via Readable.toWeb() causes backpressure if the client's HTTP/2 connection is slow,
-    // which stalls the upstream TCP socket for 30+ seconds and exhausts connection pools.
-    // Buffering in memory ensures we pull from the XUI server as fast as possible (1 Gbps)
-    // and release the upstream socket immediately.
-    const bodyBuffer = await new Promise<Uint8Array>((resolve, reject) => {
-      const chunks: Buffer[] = [];
-      response.on("data", (chunk) => {
-        chunks.push(chunk);
-        timing.firstByteAt ??= Date.now();
-        timing.bytes += chunk.byteLength;
-      });
-      response.on("end", () => resolve(new Uint8Array(Buffer.concat(chunks))));
-      response.on("error", reject);
+    // Wrap the Node.js IncomingMessage as a Web ReadableStream.
+    // The CALLER (stream-session.server.ts) is responsible for buffering this body
+    // at server-to-server speed before forwarding to the browser client.
+    // Do NOT buffer here — doing so would double-buffer and cause idle-timer races
+    // where response.on("close") fires before "end", leaving the Promise unresolved
+    // until the idle timeout destroys the socket with a generic Error → 502.
+    const body = Readable.toWeb(response) as ReadableStream<Uint8Array>;
+    const reader = body.getReader();
+    const webStream = new ReadableStream<Uint8Array>({
+      async pull(controller) {
+        try {
+          const chunk = await reader.read();
+          if (chunk.done) {
+            timing.endedAt ??= Date.now();
+            controller.close();
+            return;
+          }
+          timing.firstByteAt ??= Date.now();
+          timing.bytes += chunk.value.byteLength;
+          controller.enqueue(chunk.value);
+        } catch (error) {
+          timing.endedAt ??= Date.now();
+          controller.error(error);
+        }
+      },
+      async cancel(reason) {
+        timing.endedAt ??= Date.now();
+        await reader.cancel(reason);
+      },
     });
 
-    timing.endedAt = Date.now();
-
-    const result = new Response(bodyBuffer, {
+    const result = new Response(noBody ? null : webStream, {
       status,
       statusText: response.statusMessage ?? "",
       headers: responseHeaders(response.headers),
