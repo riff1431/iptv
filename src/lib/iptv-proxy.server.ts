@@ -105,9 +105,6 @@ export function rewritePlaylist(
     if (!trimmed) return raw;
     const abs = new URL(trimmed, base);
     
-    // HYBRID PROXY: Let the browser fetch directly from the upstream provider!
-    // If the Admin UI is configured with HTTPS, but XUI redirects to an HTTP IP,
-    // force the URL back to the secure HTTPS hostname to prevent Mixed Content errors.
     if (forceBase && abs.protocol === "http:") {
       abs.protocol = forceBase.protocol;
       abs.hostname = forceBase.hostname;
@@ -115,7 +112,7 @@ export function rewritePlaylist(
       else abs.port = "";
     }
     
-    return abs.toString();
+    return `${segmentProxyPath}?${signSegmentUrl(tvId, abs.toString())}`;
   };
 
   return playlist
@@ -131,7 +128,7 @@ export function rewritePlaylist(
             if (forceBase.port) abs.port = forceBase.port;
             else abs.port = "";
           }
-          return `URI="${abs.toString()}"`;
+          return `URI="${segmentProxyPath}?${signSegmentUrl(tvId, abs.toString())}"`;
         });
       }
       return rewriteOne(line);
