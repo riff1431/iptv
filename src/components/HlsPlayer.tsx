@@ -204,15 +204,15 @@ export function HlsPlayer({
     if (isHls && Hls.isSupported()) {
       const hls = new Hls({
         enableWorker: true,
-        lowLatencyMode: false,
-        backBufferLength: 30,
-        maxBufferLength: 60,
-        maxMaxBufferLength: 120,
-        liveSyncDurationCount: 6,
-        liveMaxLatencyDurationCount: 12,
-        manifestLoadPolicy: stableLoadPolicy(10_000, 30_000),
-        playlistLoadPolicy: stableLoadPolicy(10_000, 30_000),
-        fragLoadPolicy: stableLoadPolicy(15_000, 120_000),
+        lowLatencyMode: true,
+        backBufferLength: 5,
+        maxBufferLength: 10,
+        maxMaxBufferLength: 20,
+        liveSyncDurationCount: 3,
+        liveMaxLatencyDurationCount: 6,
+        manifestLoadPolicy: stableLoadPolicy(5_000, 15_000),
+        playlistLoadPolicy: stableLoadPolicy(5_000, 15_000),
+        fragLoadPolicy: stableLoadPolicy(8_000, 30_000),
         xhrSetup: attachSameOriginAuth,
       });
       hlsRef.current = hls;
@@ -264,12 +264,12 @@ export function HlsPlayer({
         const ranges = video.seekable;
         if (!ranges.length) return;
         const liveEdge = ranges.end(ranges.length - 1);
-        if (liveEdge - video.currentTime > 30) {
+        if (liveEdge - video.currentTime > 45) {
           const safeTarget = hls.liveSyncPosition ?? liveEdge - 12;
           video.currentTime = Math.max(ranges.start(0), Math.min(liveEdge - 2, safeTarget));
         }
         onWaiting();
-      }, 2_000);
+      }, 5_000);
     } else {
       // Native HLS (Safari) or plain progressive URL.
       video.src = src;

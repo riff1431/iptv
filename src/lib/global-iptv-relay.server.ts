@@ -7,7 +7,7 @@ import {
   type UpstreamTiming,
 } from "@/lib/iptv-upstream.server";
 
-const PLAYLIST_TTL_MS = 2_500;
+const PLAYLIST_TTL_MS = 4_000;
 const PLAYLIST_STALE_MS = 30_000;
 const PLAYLIST_CACHE_MAX = 32;
 const MAX_PLAYLIST_BYTES = 2 * 1024 * 1024;
