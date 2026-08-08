@@ -21,8 +21,8 @@ const ALLOWED_REQUEST_HEADERS = new Set([
   "user-agent",
 ]);
 
-const httpAgent = new http.Agent({ keepAlive: false, maxSockets: 500, maxFreeSockets: 100 });
-const httpsAgent = new https.Agent({ keepAlive: false, maxSockets: 500, maxFreeSockets: 100 });
+const httpAgent = new http.Agent({ keepAlive: true, keepAliveMsecs: 1000, maxSockets: 500, maxFreeSockets: 50 });
+const httpsAgent = new https.Agent({ keepAlive: true, keepAliveMsecs: 1000, maxSockets: 500, maxFreeSockets: 50 });
 
 function envInt(name: string, fallback: number, min: number, max: number): number {
   const value = Number(process.env[name]);
@@ -104,7 +104,6 @@ function safeRequestHeaders(
     if (ALLOWED_REQUEST_HEADERS.has(key.toLowerCase())) output[key] = value;
   }
   output.Host = target.host;
-  output.Connection = "close"; // Force close to prevent leaking active connections to IPTV providers
   return output;
 }
 
@@ -295,34 +294,38 @@ export async function customFetch(
     });
 
     const noBody = method === "HEAD" || status === 204 || status === 205 || status === 304;
-    let body: ReadableStream<Uint8Array> | null = null;
-    if (!noBody) {
-      const nativeBody = Readable.toWeb(response) as ReadableStream<Uint8Array>;
-      const reader = nativeBody.getReader();
-      body = new ReadableStream<Uint8Array>({
-        async pull(controller) {
-          try {
-            const chunk = await reader.read();
-            if (chunk.done) {
-              timing.endedAt ??= Date.now();
-              controller.close();
-              return;
-            }
-            timing.firstByteAt ??= Date.now();
-            timing.bytes += chunk.value.byteLength;
-            controller.enqueue(chunk.value);
-          } catch (error) {
-            timing.endedAt ??= Date.now();
-            controller.error(error);
-          }
-        },
-        async cancel(reason) {
-          timing.endedAt ??= Date.now();
-          await reader.cancel(reason);
-        },
+    
+    if (noBody) {
+      const result = new Response(null, {
+        status,
+        statusText: response.statusMessage ?? "",
+        headers: responseHeaders(response.headers),
       });
+      Object.defineProperty(result, "url", { value: currentUrl.toString(), configurable: true });
+      timingByResponse.set(result, timing);
+      return result;
     }
-    const result = new Response(body, {
+
+    // Buffer the entire response body before resolving.
+    // Streaming via Readable.toWeb() causes backpressure if the client's HTTP/2 connection is slow,
+    // which stalls the upstream TCP socket for 30+ seconds and exhausts connection pools.
+    // Buffering in memory ensures we pull from the XUI server as fast as possible (1 Gbps)
+    // and release the upstream socket immediately.
+    const bodyBuffer = await new Promise<Uint8Array>((resolve, reject) => {
+      const chunks: Buffer[] = [];
+      response.on("data", (chunk) => {
+        chunks.push(chunk);
+        timing.firstByteAt ??= Date.now();
+        timing.bytes += chunk.byteLength;
+      });
+      response.on("end", () => resolve(new Uint8Array(Buffer.concat(chunks))));
+      response.on("error", reject);
+      response.on("close", () => resolve(new Uint8Array(Buffer.concat(chunks))));
+    });
+
+    timing.endedAt = Date.now();
+
+    const result = new Response(bodyBuffer, {
       status,
       statusText: response.statusMessage ?? "",
       headers: responseHeaders(response.headers),
