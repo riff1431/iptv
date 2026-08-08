@@ -242,6 +242,9 @@ export async function handleSegRequest(request: Request, tvId: string): Promise<
     "Cache-Control": "no-store",
     "X-IPTV-Request-Id": requestId,
   };
+  if (lastError instanceof Error) {
+    headers["X-IPTV-Error"] = String(lastError.message).replace(/[^\x20-\x7E]/g, "");
+  }
   if (status === 429 || status === 502 || status === 504)
     headers["Retry-After"] = status === 429 ? "10" : "2";
   return new Response(

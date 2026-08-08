@@ -209,15 +209,21 @@ export async function handlePlaylistRequest(request: Request, tvId: string): Pro
       failureCategory: status === 429 ? "connection_limit" : "playlist_failure",
       message: error,
     });
+    const headers: Record<string, string> = {
+      "Cache-Control": "no-store",
+      "X-IPTV-Request-Id": requestId,
+    };
+    if (error instanceof Error) {
+      headers["X-IPTV-Error"] = String(error.message).replace(/[^\x20-\x7E]/g, "");
+    }
+    if (status === 429 || status === 502 || status === 504)
+      headers["Retry-After"] = status === 429 ? "10" : "2";
+
     return new Response(
       status === 429 ? "Provider connection limit reached" : "Temporary upstream failure",
       {
         status,
-        headers: {
-          "Cache-Control": "no-store",
-          "X-IPTV-Request-Id": requestId,
-          ...(status === 429 ? { "Retry-After": "10" } : { "Retry-After": "2" }),
-        },
+        headers,
       },
     );
   }
